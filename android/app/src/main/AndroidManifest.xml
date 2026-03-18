@@ -5,6 +5,8 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <!-- 링크 연결용 -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- 프로필 등록용 카메라 권한 -->
+    <uses-permission android:name="android.permission.CAMERA"/>
 
     <application
         android:label="TaxiMate"

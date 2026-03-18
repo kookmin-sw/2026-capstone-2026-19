@@ -10,6 +10,7 @@ import 'screens/auth/login_screen.dart';
 import 'screens/auth/signup_screen.dart';
 import 'screens/tabs/home_tab.dart';
 import 'screens/tabs/matching_tab.dart';
+import 'screens/tabs/active_tab.dart';
 import 'screens/tabs/message_tab.dart';
 import 'screens/tabs/myPage_tab.dart';
 import 'utils/colors.dart';
@@ -19,7 +20,7 @@ void main() async {
   // Flutter 엔진 초기화 (async main 사용 시 필수)
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 네이버 지도 SDK 초기화
+  // 네이버 지도 SDK 초기화 (웹에서는 제외)
   if (!kIsWeb) {
     await NaverMapSdk.instance.initialize(
       clientId: 'f61sxzdmej',
@@ -32,13 +33,14 @@ void main() async {
   runApp(const TaxiMateApp());
 }
 
+// 앱 최상위 위젯 (앱 전체를 감싸고 있는 위젯)
 class TaxiMateApp extends StatelessWidget {
   const TaxiMateApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'TaxiMate',
+      title: 'TaxiMate',  // 나중에 앱 이름 바꾸기?
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
@@ -64,7 +66,7 @@ class TaxiMateApp extends StatelessWidget {
           ),
         ),
       ),
-      initialRoute: AppRoutes.splash,
+      initialRoute: AppRoutes.splash, // 앱 시작 시 기본적으로 스플래시 화면으로 이동
       routes: {
         AppRoutes.splash: (_) => const SplashScreen(),
         AppRoutes.login:  (_) => const LoginScreen(),
@@ -75,18 +77,22 @@ class TaxiMateApp extends StatelessWidget {
   }
 }
 
+// 메인 화면 (StatefulWidget으로 탭 구조 관리)
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
   @override
   State<MainScreen> createState() => _MainScreenState();
 }
 
+// 메인 화면 상태 관리 클래스
 class _MainScreenState extends State<MainScreen> {
-  int _selectedIndex = 0;
+  int _selectedIndex = 0; // 현재 선택된 탭 인덱스
 
+  // 각 탭 화면 리스트
   List<Widget> get _screens => [
     HomeTab(onTabChange: (i) => setState(() => _selectedIndex = i)),
     const MatchingTab(),
+    const ActiveTab(),
     const MessageTab(),
     const MyPageTab(),
   ];
@@ -94,10 +100,10 @@ class _MainScreenState extends State<MainScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: IndexedStack(index: _selectedIndex, children: _screens),
+      body: IndexedStack(index: _selectedIndex, children: _screens), // 여러 탭 화면 유지하면서 현재 탭만 출력
       bottomNavigationBar: BottomNavigationBar(
-        type: BottomNavigationBarType.fixed,
-        currentIndex: _selectedIndex,
+        type: BottomNavigationBarType.fixed, // 탭 네비게이션 바
+        currentIndex: _selectedIndex, // 현재 선택된 탭 인덱스
         onTap: (i) => setState(() => _selectedIndex = i),
         backgroundColor: Colors.white,
         selectedItemColor: AppColors.primary,
@@ -105,9 +111,10 @@ class _MainScreenState extends State<MainScreen> {
         selectedLabelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11),
         unselectedLabelStyle: const TextStyle(fontSize: 11),
         elevation: 12,
-        items: const [
+        items: const [ // 탭바 아이콘 설정
           BottomNavigationBarItem(icon: Icon(Icons.home_outlined),        activeIcon: Icon(Icons.home),        label: '홈'),
           BottomNavigationBarItem(icon: Icon(Icons.location_on_outlined), activeIcon: Icon(Icons.location_on), label: '매칭'),
+          BottomNavigationBarItem(icon: Icon(Icons.directions_car_outlined), activeIcon: Icon(Icons.directions_car), label: '이용 중'),
           BottomNavigationBarItem(icon: Icon(Icons.chat_bubble_outline),  activeIcon: Icon(Icons.chat_bubble), label: '채팅'),
           BottomNavigationBarItem(icon: Icon(Icons.person_outline),       activeIcon: Icon(Icons.person),      label: '내정보'),
         ],
