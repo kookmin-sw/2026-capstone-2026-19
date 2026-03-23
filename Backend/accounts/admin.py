@@ -1,72 +1,104 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 
-from .models import User, EmailVerification
+from .models import User, WithdrawalBlock
 
 
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
-    model = User
-    ordering = ("id",)
     list_display = (
         "id",
-        "email",
+        "username",
         "nickname",
-        "email_verified",
+        "phone_number",
+        "gender",
         "trust_score",
         "penalty_points",
         "is_suspended",
+        "is_warning_active",
+        "is_active",
         "is_staff",
-        "is_superuser",
+        "date_joined",
     )
+
     list_filter = (
-        "email_verified",
+        "gender",
         "is_suspended",
+        "is_warning_active",
+        "is_active",
         "is_staff",
         "is_superuser",
     )
-    search_fields = ("email", "nickname")
+
+    search_fields = (
+        "username",
+        "nickname",
+        "phone_number",
+    )
+
+    ordering = ("-id",)
 
     fieldsets = (
-        (None, {"fields": ("email", "password")}),
-        ("Profile", {"fields": ("nickname", "profile_image_url")}),
-        (
-            "Status",
-            {
-                "fields": (
-                    "email_verified",
-                    "trust_score",
-                    "penalty_points",
-                    "is_suspended",
-                    "suspended_until",
-                )
-            },
-        ),
-        (
-            "Permissions",
-            {
-                "fields": (
-                    "is_active",
-                    "is_staff",
-                    "is_superuser",
-                    "groups",
-                    "user_permissions",
-                )
-            },
-        ),
-        ("Important dates", {"fields": ("last_login", "created_at", "updated_at")}),
+        ("로그인 정보", {
+            "fields": ("username", "password")
+        }),
+        ("기본 정보", {
+            "fields": ("nickname", "phone_number", "gender", "profile_img_url")
+        }),
+        ("신뢰/패널티 정보", {
+            "fields": (
+                "trust_score",
+                "penalty_points",
+                "successful_streak_count",
+                "is_warning_active",
+                "last_score_updated_at",
+            )
+        }),
+        ("정지 정보", {
+            "fields": (
+                "is_suspended",
+                "suspended_until",
+            )
+        }),
+        ("권한 정보", {
+            "fields": (
+                "is_active",
+                "is_staff",
+                "is_superuser",
+                "groups",
+                "user_permissions",
+            )
+        }),
+        ("기록", {
+            "fields": (
+                "last_login",
+                "date_joined",
+                "created_at",
+                "updated_at",
+            )
+        }),
+    )
+
+    readonly_fields = (
+        "last_login",
+        "date_joined",
+        "created_at",
+        "updated_at",
     )
 
     add_fieldsets = (
         (
-            None,
+            "회원 생성",
             {
                 "classes": ("wide",),
                 "fields": (
-                    "email",
+                    "username",
                     "nickname",
+                    "phone_number",
+                    "gender",
                     "password1",
                     "password2",
+                    "is_active",
                     "is_staff",
                     "is_superuser",
                 ),
@@ -74,19 +106,34 @@ class UserAdmin(BaseUserAdmin):
         ),
     )
 
-    readonly_fields = ("created_at", "updated_at")
 
-
-@admin.register(EmailVerification)
-class EmailVerificationAdmin(admin.ModelAdmin):
+@admin.register(WithdrawalBlock)
+class WithdrawalBlockAdmin(admin.ModelAdmin):
     list_display = (
         "id",
-        "email",
-        "user",
+        "phone_number",
         "status",
-        "expires_at",
-        "verified_at",
+        "trust_score_at_withdrawal",
+        "blocked_until",
+        "withdrawn_user",
         "created_at",
     )
-    list_filter = ("status",)
-    search_fields = ("email",)
+
+    list_filter = (
+        "status",
+        "created_at",
+        "blocked_until",
+    )
+
+    search_fields = (
+        "phone_number",
+        "withdrawn_user__username",
+        "withdrawn_user__nickname",
+    )
+
+    ordering = ("-created_at",)
+
+    readonly_fields = (
+        "created_at",
+        "updated_at",
+    )

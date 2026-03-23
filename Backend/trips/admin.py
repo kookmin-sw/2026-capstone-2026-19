@@ -17,8 +17,25 @@ class TripAdmin(admin.ModelAdmin):
         "estimated_fare",
         "created_at",
     )
-    list_filter = ("status",)
-    search_fields = ("depart_name", "arrive_name")
+
+    list_filter = (
+        "status",
+        "capacity",
+        "created_at",
+    )
+
+    search_fields = (
+        "creator_user__username",
+        "creator_user__nickname",
+        "leader_user__username",
+        "leader_user__nickname",
+        "depart_name",
+        "arrive_name",
+    )
+
+    ordering = ("-id",)
+
+    readonly_fields = ("created_at",)
 
 
 @admin.register(TripParticipant)
@@ -34,5 +51,23 @@ class TripParticipantAdmin(admin.ModelAdmin):
         "joined_at",
         "left_at",
     )
-    list_filter = ("role", "status", "confirmed_departure")
-    search_fields = ("trip__depart_name", "user__email", "user__nickname")
+
+    list_filter = (
+        "role",
+        "status",
+        "confirmed_departure",
+        "seat_position",
+        "joined_at",
+    )
+
+    search_fields = (
+        "trip__id",
+        "user__username",
+        "user__nickname",
+    )
+
+    ordering = ("-id",)
+
+    readonly_fields = (
+        "joined_at",
+    )

@@ -51,3 +51,14 @@ macos/Flutter/flutter_export_environment.sh
 
 windows/flutter/ephemeral/
 linux/flutter/ephemeral/
+
+# =========================
+# Project-specific local / generated files
+# =========================
+Backend/app_Taxi_DB
+
+frontend/ios/Runner/GeneratedPluginRegistrant.*
+frontend/linux/flutter/generated_plugin_registrant.cc
+frontend/linux/flutter/generated_plugin_registrant.h
+frontend/linux/flutter/generated_plugins.cmake
+frontend/macos/Flutter/GeneratedPluginRegistrant.swift

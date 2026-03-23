@@ -10,6 +10,11 @@ class ChatRoom(models.Model):
         on_delete=models.CASCADE,
         related_name="chat_room",
     )
+    pinned_notice = models.TextField(
+        blank=True,
+        null=True,
+        default="택시 번호 및 만날 위치를 공유해주세요!",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     expires_at = models.DateTimeField(blank=True, null=True)

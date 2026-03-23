@@ -8,10 +8,19 @@ class PaymentChannelAdmin(admin.ModelAdmin):
     list_display = (
         "id",
         "trip",
+        "provider",
         "updated_by",
         "updated_at",
     )
-    search_fields = ("trip__depart_name", "trip__arrive_name", "updated_by__email")
+    list_filter = ("provider", "updated_at")
+    search_fields = (
+        "trip__depart_name",
+        "trip__arrive_name",
+        "updated_by__username",
+        "updated_by__nickname",
+    )
+    ordering = ("-updated_at",)
+    readonly_fields = ("updated_at",)
 
 
 @admin.register(Receipt)
@@ -25,8 +34,16 @@ class ReceiptAdmin(admin.ModelAdmin):
         "confirmed_at",
         "created_at",
     )
-    list_filter = ("status",)
-    search_fields = ("trip__depart_name", "trip__arrive_name", "uploaded_by__email")
+    list_filter = ("status", "created_at", "confirmed_at")
+    search_fields = (
+        "trip__depart_name",
+        "trip__arrive_name",
+        "uploaded_by__username",
+        "uploaded_by__nickname",
+        "image_url",
+    )
+    ordering = ("-created_at",)
+    readonly_fields = ("created_at",)
 
 
 @admin.register(Settlement)
@@ -43,13 +60,18 @@ class SettlementAdmin(admin.ModelAdmin):
         "confirmed_at",
         "due_at",
     )
-    list_filter = ("status",)
+    list_filter = ("status", "requested_at", "confirmed_at", "due_at")
     search_fields = (
-        "payer_user__email",
-        "payee_user__email",
+        "payer_user__username",
+        "payer_user__nickname",
+        "payee_user__username",
+        "payee_user__nickname",
         "trip__depart_name",
         "trip__arrive_name",
+        "memo_code",
     )
+    ordering = ("-requested_at",)
+    readonly_fields = ("requested_at",)
 
 
 @admin.register(SettlementProof)
@@ -60,4 +82,10 @@ class SettlementProofAdmin(admin.ModelAdmin):
         "uploaded_by",
         "created_at",
     )
-    search_fields = ("uploaded_by__email",)
+    search_fields = (
+        "uploaded_by__username",
+        "uploaded_by__nickname",
+        "image_url",
+    )
+    ordering = ("-created_at",)
+    readonly_fields = ("created_at",)

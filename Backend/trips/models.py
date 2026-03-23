@@ -1,16 +1,16 @@
 from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+from django.db.models import Q
 
 
 class Trip(models.Model):
-    STATUS_CHOICES = [
-        ("OPEN", "OPEN"),
-        ("FULL", "FULL"),
-        ("CANCELED", "CANCELED"),
-        ("CLOSED", "CLOSED"),
-        ("COMPLETED", "COMPLETED"   ),
-    ]
+    class StatusChoices(models.TextChoices):
+        OPEN = "OPEN", "OPEN"
+        FULL = "FULL", "FULL"
+        CANCELED = "CANCELED", "CANCELED"
+        CLOSED = "CLOSED", "CLOSED"
+        COMPLETED = "COMPLETED", "COMPLETED"
 
     creator_user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -35,26 +35,42 @@ class Trip(models.Model):
     capacity = models.PositiveSmallIntegerField(
         validators=[MinValueValidator(2), MaxValueValidator(4)]
     )
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="OPEN")
-    estimated_fare = models.IntegerField(blank=True, null=True)
+    status = models.CharField(
+        max_length=20,
+        choices=StatusChoices.choices,
+        default=StatusChoices.OPEN,
+    )
+    estimated_fare = models.PositiveIntegerField(blank=True, null=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(capacity__gte=2) & Q(capacity__lte=4),
+                name="trips_trip_capacity_range",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.depart_name} -> {self.arrive_name} ({self.depart_time})"
 
 
 class TripParticipant(models.Model):
-    ROLE_CHOICES = [
-        ("LEADER", "LEADER"),
-        ("MEMBER", "MEMBER"),
-    ]
+    class RoleChoices(models.TextChoices):
+        LEADER = "LEADER", "LEADER"
+        MEMBER = "MEMBER", "MEMBER"
 
-    STATUS_CHOICES = [
-        ("JOINED", "JOINED"),
-        ("LEFT", "LEFT"),
-        ("KICKED", "KICKED"),
-    ]
+    class StatusChoices(models.TextChoices):
+        JOINED = "JOINED", "JOINED"
+        LEFT = "LEFT", "LEFT"
+        KICKED = "KICKED", "KICKED"
+
+    class SeatChoices(models.TextChoices):
+        FRONT_PASSENGER = "FRONT_PASSENGER", "앞좌석"
+        REAR_LEFT = "REAR_LEFT", "뒷좌석 왼쪽"
+        REAR_RIGHT = "REAR_RIGHT", "뒷좌석 오른쪽"
+        REAR_MIDDLE = "REAR_MIDDLE", "뒷좌석 가운데"
 
     trip = models.ForeignKey(
         Trip,
@@ -66,8 +82,20 @@ class TripParticipant(models.Model):
         on_delete=models.CASCADE,
         related_name="trip_participants",
     )
-    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default="MEMBER")
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="JOINED")
+    role = models.CharField(
+        max_length=20,
+        choices=RoleChoices.choices,
+        default=RoleChoices.MEMBER,
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=StatusChoices.choices,
+        default=StatusChoices.JOINED,
+    )
+    seat_position = models.CharField(
+        max_length=30,
+        choices=SeatChoices.choices,
+    )
     confirmed_departure = models.BooleanField(default=False)
     joined_at = models.DateTimeField(auto_now_add=True)
     left_at = models.DateTimeField(blank=True, null=True)
@@ -77,7 +105,11 @@ class TripParticipant(models.Model):
             models.UniqueConstraint(
                 fields=["trip", "user"],
                 name="unique_trip_participant",
-            )
+            ),
+            models.UniqueConstraint(
+                fields=["trip", "seat_position"],
+                name="unique_trip_seat_position",
+            ),
         ]
 
     def __str__(self):
