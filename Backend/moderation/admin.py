@@ -14,11 +14,15 @@ class ReviewAdmin(admin.ModelAdmin):
         "created_at",
     )
     search_fields = (
-        "from_user__email",
-        "to_user__email",
+        "from_user__username",
+        "to_user__username",
         "from_user__nickname",
         "to_user__nickname",
+        "comment",
     )
+    list_filter = ("rating", "created_at")
+    ordering = ("-created_at",)
+    readonly_fields = ("created_at",)
 
 
 @admin.register(Penalty)
@@ -31,7 +35,15 @@ class PenaltyAdmin(admin.ModelAdmin):
         "points",
         "created_at",
     )
-    search_fields = ("user__email", "user__nickname", "type")
+    search_fields = (
+        "user__username",
+        "user__nickname",
+        "type",
+        "reason",
+    )
+    list_filter = ("type", "created_at")
+    ordering = ("-created_at",)
+    readonly_fields = ("created_at",)
 
 
 @admin.register(Report)
@@ -45,13 +57,19 @@ class ReportAdmin(admin.ModelAdmin):
         "status",
         "created_at",
     )
-    list_filter = ("status",)
+    list_filter = ("status", "created_at")
     search_fields = (
-        "reporter_user__email",
-        "reported_user__email",
+        "reporter_user__username",
+        "reported_user__username",
+        "reporter_user__nickname",
+        "reported_user__nickname",
         "reason",
+        "detail",
     )
-    
+    ordering = ("-created_at",)
+    readonly_fields = ("created_at",)
+
+
 @admin.register(TrustScoreLog)
 class TrustScoreLogAdmin(admin.ModelAdmin):
     list_display = (
@@ -65,5 +83,17 @@ class TrustScoreLogAdmin(admin.ModelAdmin):
         "score_after",
         "created_at",
     )
-    list_filter = ("event_type", "direction", "is_warning_triggered")
-    search_fields = ("user__email", "user__nickname", "reason_detail")
+    list_filter = (
+        "event_type",
+        "direction",
+        "is_warning_triggered",
+        "created_by_system",
+        "created_at",
+    )
+    search_fields = (
+        "user__username",
+        "user__nickname",
+        "reason_detail",
+    )
+    ordering = ("-created_at",)
+    readonly_fields = ("created_at",)

@@ -1,90 +1,45 @@
-# trips/views.py
-from rest_framework import generics, status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from django.utils import timezone
-from rest_framework import generics
-from .models import Trip
-from .serializers import (
-    TripCreateSerializer,
-    TripListSerializer,
-    TripDetailSerializer,TripMapPinSerializer,
-)
-from .services import create_trip, join_trip, leave_trip, kick_participant, close_trip
+from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIView
+from .models import Trip, TripParticipant
+from .serializers import TripSerializer, TripParticipantSerializer
 
-class TripMapPinListView(generics.ListAPIView):
-    serializer_class = TripMapPinSerializer
-    permission_classes = [IsAuthenticated]
-
-    def get_queryset(self):
-        now = timezone.now()
-        return (
-            Trip.objects
-            .filter(
-                depart_time__gte=now,
-                status__in=["OPEN", "FULL"],
-            )
-            .order_by("depart_time")
-        )
-class TripListCreateView(generics.ListCreateAPIView):
-    permission_classes = [IsAuthenticated]
-
-    def get_queryset(self):
-        return Trip.objects.all().order_by("-created_at")
-
-    def get_serializer_class(self):
-        if self.request.method == "POST":
-            return TripCreateSerializer
-        return TripListSerializer
+# 1. 여행(Trip) 관련 View
+class TripListCreateView(ListCreateAPIView):
+    """
+    GET: 전체 여행 목록 조회
+    POST: 새로운 여행 생성 (시리얼라이저 내부 로직으로 리더가 자동 등록됨)
+    """
+    queryset = Trip.objects.all().order_by('-created_at')
+    serializer_class = TripSerializer
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        if serializer.is_valid():
+            # serializer.save() 호출 시 시리얼라이저의 create() 메서드가 실행됨
+            trip = serializer.save()
+            # 저장된 데이터를 다시 직렬화해서 Flutter로 응답
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        trip = create_trip(
-            user=request.user,
-            validated_data=serializer.validated_data,
-        )
 
-        output = TripDetailSerializer(trip, context={"request": request})
-        return Response(output.data, status=status.HTTP_201_CREATED)
-class TripDetailView(generics.RetrieveAPIView):
+# 2. 참여자(Participant) 관련 View
+class ParticipantCreateView(APIView):
+    """
+    POST: 특정 여행에 새로운 참여자 등록 (나중에 따로 올 때 호출)
+    """
+    def post(self, request):
+        serializer = TripParticipantSerializer(data=request.data)
+        if serializer.is_valid():
+            # validate()에서 정원 초과/중복 여부를 체크한 뒤 저장
+            participant = serializer.save()
+            # "OOO님이 참여했습니다"와 같은 응답을 Flutter로 보냄
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+# 3. 여행 상세 및 수정/삭제 View (선택 사항)
+class TripDetailView(RetrieveUpdateDestroyAPIView):
     queryset = Trip.objects.all()
-    serializer_class = TripDetailSerializer
-    permission_classes = [IsAuthenticated]
-class TripLeaveView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, trip_id):
-        trip = Trip.objects.get(id=trip_id)
-        trip = leave_trip(trip=trip, user=request.user)
-        return Response(TripDetailSerializer(trip).data, status=status.HTTP_200_OK)
-class TripKickView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, trip_id):
-        target_user_id = request.data.get("user_id")
-        if not target_user_id:
-            return Response(
-                {"detail": "user_id는 필수입니다."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        trip = Trip.objects.get(id=trip_id)
-        trip = kick_participant(
-            trip=trip,
-            actor=request.user,
-            target_user_id=target_user_id,
-        )
-        return Response(TripDetailSerializer(trip).data, status=status.HTTP_200_OK)
-class TripCloseView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, trip_id):
-        trip = Trip.objects.get(id=trip_id)
-        trip = close_trip(trip=trip, actor=request.user)
-        return Response(TripDetailSerializer(trip).data, status=status.HTTP_200_OK)
-
-
-# 아직 데이터 보관 DB에 연결안했고 없어지는것도 결제후로 처리 안되었음, 반경도 아직 없음
+    serializer_class = TripSerializer

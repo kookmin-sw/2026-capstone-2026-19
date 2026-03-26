@@ -1,115 +1,59 @@
-# trips/serializers.py
 from rest_framework import serializers
+from django.db import transaction
 from .models import Trip, TripParticipant
 
-class TripMapPinSerializer(serializers.ModelSerializer):
-    trip_id = serializers.IntegerField(source="id", read_only=True)
-    current_joined_count = serializers.SerializerMethodField()
 
-    class Meta:
-        model = Trip
-        fields = [
-            "trip_id",
-            "depart_name",
-            "depart_lat",
-            "depart_lng",
-            "arrive_name",
-            "arrive_lat",
-            "arrive_lng",
-            "depart_time",
-            "status",
-            "capacity",
-            "current_joined_count",
-        ]
-
-    def get_current_joined_count(self, obj):
-        return obj.trip_participants.filter(status="JOINED").count()
-class TripCreateSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Trip
-        fields = [
-            "depart_name",
-            "depart_lat",
-            "depart_lng",
-            "arrive_name",
-            "arrive_lat",
-            "arrive_lng",
-            "depart_time",
-            "capacity",
-            "estimated_fare",
-        ]
-
-    def validate(self, attrs):
-        depart_name = attrs.get("depart_name")
-        arrive_name = attrs.get("arrive_name")
-
-        if depart_name == arrive_name:
-            raise serializers.ValidationError("출발지와 도착지가 같을 수 없습니다.")
-
-        return attrs
-
+# 1. 참여자용 시리얼라이저 (상세 정보 포함)
 class TripParticipantSerializer(serializers.ModelSerializer):
-    user_id = serializers.IntegerField(source="user.id", read_only=True)
+    user_name = serializers.ReadOnlyField(source='user.username')
+    joined_at = serializers.DateTimeField(format="%Y-%m-%d %H:%M:%S", read_only=True)
 
     class Meta:
         model = TripParticipant
         fields = [
-            "id",
-            "user_id",
-            "role",
-            "status",
-            "confirmed_departure",
-            "joined_at",
-            "left_at",
+            'id', 'trip', 'user', 'user_name',
+            'role', 'status', 'joined_at'
         ]
-class TripDetailSerializer(serializers.ModelSerializer):
-    participants = serializers.SerializerMethodField()
-    current_joined_count = serializers.SerializerMethodField()
+        read_only_fields = ['id', 'joined_at']
+
+    def validate(self, data):
+        """비즈니스 로직 검증"""
+        trip = data['trip']
+        user = data['user']
+
+        # 1. 정원 초과 확인
+        if trip.trip_participants.filter(status='JOINED').count() >= trip.capacity:
+            raise serializers.ValidationError("이 여행은 이미 정원이 초과되었습니다.")
+
+        # 2. 이미 참여 중인지 확인 (UniqueConstraint가 모델에 있지만, 여기서 에러 메시지 커스텀 가능)
+        if TripParticipant.objects.filter(trip=trip, user=user).exists():
+            raise serializers.ValidationError("이미 이 여행에 참여하고 있습니다.")
+
+        return data
+
+
+# 2. 여행 생성 및 전체 조회용 시리얼라이저
+class TripSerializer(serializers.ModelSerializer):
+    created_at = serializers.DateTimeField(format="%Y-%m-%d %H:%M:%S", read_only=True)
+    # 현재 참여자 목록을 상세히 보고 싶을 때 사용
+    participants = TripParticipantSerializer(source='trip_participants', many=True, read_only=True)
 
     class Meta:
         model = Trip
-        fields = [
-            "id",
-            "creator_user",
-            "leader_user",
-            "depart_name",
-            "depart_lat",
-            "depart_lng",
-            "arrive_name",
-            "arrive_lat",
-            "arrive_lng",
-            "depart_time",
-            "capacity",
-            "status",
-            "estimated_fare",
-            "created_at",
-            "current_joined_count",
-            "participants",
-        ]
+        fields = '__all__'
+        read_only_fields = ['id', 'created_at']
 
-    def get_participants(self, obj):
-        qs = obj.trip_participants.filter(status="JOINED").select_related("user")
-        return TripParticipantSerializer(qs, many=True).data
+    def create(self, validated_data):
+        """여행 생성 시 리더를 참여자 테이블에 즉시 등록"""
+        with transaction.atomic():
+            # 여행 정보 생성
+            trip = Trip.objects.create(**validated_data)
 
-    def get_current_joined_count(self, obj):
-        return obj.trip_participants.filter(status="JOINED").count()
-
-class TripListSerializer(serializers.ModelSerializer):
-    current_joined_count = serializers.SerializerMethodField()
-
-    class Meta:
-        model = Trip
-        fields = [
-            "id",
-            "depart_name",
-            "arrive_name",
-            "depart_time",
-            "capacity",
-            "status",
-            "estimated_fare",
-            "current_joined_count",
-            "created_at",
-        ]
-
-    def get_current_joined_count(self, obj):
-        return obj.trip_participants.filter(status="JOINED").count()
+            # 리더(생성자) 정보 등록
+            TripParticipant.objects.create(
+                trip=trip,
+                user=validated_data['leader_user'],
+                role='LEADER',
+                status='JOINED'
+            )
+            return trip
