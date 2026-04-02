@@ -45,6 +45,8 @@ class _MatchingTabState extends State<MatchingTab>
     {'hostId':'go_choi',   'dept':'신촌역',         'dest':'판교역',      'time':'16:00','max':2,'cur':0},
   ];
 
+  // ================================================================================================================
+
   // 생명주기 관리
   @override
   void initState() { // 트리에 위젯 첫 삽입 시 초기 설정 수행
@@ -525,7 +527,7 @@ class _MatchingTabState extends State<MatchingTab>
           ),
           const SizedBox(height: 16),
 
-          // 카카오페이 링크 입력 (필수로 하기?)
+          // 카카오페이 링크 입력 (필수)
           _label('💛 카카오페이 링크 (필수)'), const SizedBox(height: 6),
           TextField(
             controller: _kakaoCtrl,
@@ -674,7 +676,7 @@ class RideJoinScreen extends StatefulWidget {
 // 참여 화면 상태 관리 및 UI 렌더링
 class _RideJoinScreenState extends State<RideJoinScreen> {
   String? _selectedSeat;
-  final List<String> _takenSeats = ['조수석', '왼쪽 창가']; // 더미: 실제론 pin 데이터에서
+  final List<String> _takenSeats = ['조수석', '왼쪽 창가']; // 더미(DB연결 필요)
 
   // 참여 화면 전체 UI 렌더링
   @override
@@ -813,7 +815,7 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
             const SizedBox(height: 10),
             _card(
               child: Padding(
-                padding: const EdgeInsets.all(12), // 여기서 전체적인 내부 여백을 조절합니다.
+                padding: const EdgeInsets.all(12), // 전체적인 내부 여백을 조절
                 child: Column(
                   children: [
                     // 1행 — 운전석 / 조수석
@@ -955,7 +957,7 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
     ]),
   ]);
 
-  // 각 섹션 tilte 스타일
+  // 각 섹션 title 스타일
   Widget _sectionTitle(String text) =>
       Text(text, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: AppColors.secondary));
 

@@ -114,7 +114,7 @@ class _MyPageTabState extends State<MyPageTab> {
     );
   }
 
-  // ← 추가: 실제 이미지 선택 처리
+  // 실제 이미지 선택 처리
   Future<void> _pickImage(ImageSource source) async {
     try {
       final XFile? picked = await _picker.pickImage(
@@ -168,7 +168,7 @@ class _MyPageTabState extends State<MyPageTab> {
       child: Column(
         children: [
           // ─────────────────────────────────────────────
-          // ← 변경: GestureDetector로 프로필 전체 영역 탭 감지
+          // GestureDetector로 프로필 전체 영역 탭 감지
           // ─────────────────────────────────────────────
           GestureDetector(
             onTap: _showImagePickerSheet,
@@ -184,9 +184,9 @@ class _MyPageTabState extends State<MyPageTab> {
                   ),
                   child: ClipOval(
                     child: _profileImage != null
-                    // ← 선택된 이미지가 있으면 표시
+                    // 선택된 이미지가 있으면 표시
                         ? Image.file(_profileImage!, fit: BoxFit.cover)
-                    // ← 없으면 기본 아이콘
+                    // 없으면 기본 아이콘
                         : const Icon(Icons.person, color: AppColors.gray, size: 48),
                   ),
                 ),
@@ -310,7 +310,7 @@ class _MenuItem {
 }
 
 // ============================================================
-// 이용 내역 화면 (변경 없음)
+// 이용 내역 화면
 // ============================================================
 class HistoryScreen extends StatelessWidget {
   const HistoryScreen({super.key});
@@ -407,7 +407,7 @@ class HistoryScreen extends StatelessWidget {
 }
 
 // ============================================================
-// 설정 화면 (변경 없음)
+// 설정 화면
 // ============================================================
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -536,7 +536,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 }
 
 // ============================================================
-// 고객지원 화면 (변경 없음)
+// 고객지원 화면
 // ============================================================
 class SupportScreen extends StatelessWidget {
   const SupportScreen({super.key});
@@ -637,7 +637,7 @@ class SupportScreen extends StatelessWidget {
 }
 
 // ============================================================
-// 서브화면 공통 헬퍼 (변경 없음)
+// 서브화면 공통 헬퍼
 // ============================================================
 AppBar _appBar(String title) => AppBar(
   title: Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
