@@ -69,7 +69,7 @@ class ActiveRideState extends ChangeNotifier {
     hostId: 'taxi_kim',
     dept: '강남역 2번출구',
     dest: '김포공항',
-    time: '14:35',
+    time: '23:35',
     date: '오늘',
     max: 4,
     cur: 3,
@@ -137,7 +137,7 @@ const _waitingPins = [
   ActiveRidePin(
     id: 'w1', hostId: 'seoul_lee',
     dept: '홍대입구역', dest: '인천공항 T1',
-    time: '18:00', date: '오늘', max: 3, cur: 2,
+    time: '18:00', date: '내일', max: 3, cur: 2,
     kakaoPayLink: 'https://qr.kakaopay.com/FVVO3QHxL',
   ),
   ActiveRidePin(
