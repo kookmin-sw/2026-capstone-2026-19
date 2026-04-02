@@ -1,94 +1,51 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from django.contrib.auth import login
+from .models import User, WithdrawalBlock
+from .serializers import PhoneCheckSerializer, SignUpSerializer
 
-from .serializers import (
-    SendVerificationCodeSerializer,
-    VerifyEmailCodeSerializer,
-    SignupSerializer,
-    LoginSerializer
-)
 
-from .services import (
-    request_email_verification,
-    verify_email_code
-)
-
-class SendEmailCodeView(APIView):
-
+# [POST] /accounts/phonecheck/
+class PhoneCheckView(APIView):
     def post(self, request):
-        serializer = SendVerificationCodeSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        serializer = PhoneCheckSerializer(data=request.data)
+        if serializer.is_valid():
+            phone = serializer.validated_data['phone_number']
 
-        email = serializer.validated_data["email"]
+            # 1. 탈퇴 차단 기록 확인
+            if WithdrawalBlock.objects.filter(phone_number=phone, status="ACTIVE").exists():
+                return Response({
+                    "success": False,
+                    "message": "재가입이 제한된 번호입니다."
+                }, status=status.HTTP_400_BAD_REQUEST)
 
-        request_email_verification(email=email)
+            # 2. 이미 가입된 유저인지 확인
+            if User.objects.filter(phone_number=phone).exists():
+                return Response({
+                    "success": False,
+                    "message": "이미 가입된 번호입니다."
+                }, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response(
-            {"message": "인증코드를 이메일로 전송했습니다."},
-            status=status.HTTP_200_OK
-        )
+            return Response({
+                "success": True,
+                "message": "사용 가능한 번호입니다."
+            }, status=status.HTTP_200_OK)
 
-class VerifyEmailCodeView(APIView):
+        return Response({"success": False, "message": "데이터 형식이 잘못되었습니다."}, status=status.HTTP_400_BAD_REQUEST)
 
+
+# [POST] /account/
+class SignUpView(APIView):
     def post(self, request):
-        serializer = VerifyEmailCodeSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        serializer = SignUpSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()  # User 객체 생성
+            return Response({
+                "success": True,
+                "message": "회원가입이 완료되었습니다."
+            }, status=status.HTTP_201_CREATED)
 
-        email = serializer.validated_data["email"]
-        code = serializer.validated_data["code"]
-
-        success = verify_email_code(email=email, code=code)
-
-        if not success:
-            return Response(
-                {"message": "인증코드가 올바르지 않거나 만료되었습니다."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        return Response(
-            {"message": "이메일 인증이 완료되었습니다."},
-            status=status.HTTP_200_OK
-        )
-class SignupView(APIView):
-
-    def post(self, request):
-
-        serializer = SignupSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        user = serializer.save()
-
-        return Response(
-            {
-                "message": "회원가입이 완료되었습니다.",
-                "email": user.email,
-                "nickname": user.nickname
-            },
-            status=status.HTTP_201_CREATED
-        )
-from rest_framework_simplejwt.tokens import RefreshToken
-
-
-class LoginView(APIView):
-
-    def post(self, request):
-
-        serializer = LoginSerializer(
-            data=request.data,
-            context={"request": request}
-        )
-
-        serializer.is_valid(raise_exception=True)
-
-        user = serializer.validated_data["user"]
-
-        refresh = RefreshToken.for_user(user)
-
-        return Response(
-            {
-                "access": str(refresh.access_token),
-                "refresh": str(refresh),
-            }
-        )
+        return Response({
+            "success": False,
+            "message": serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)

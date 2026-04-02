@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import '../auth/login_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../utils/colors.dart';
+import '../../service/auth_service.dart';
 
 class MyPageTab extends StatefulWidget {
   const MyPageTab({super.key});
@@ -114,7 +115,7 @@ class _MyPageTabState extends State<MyPageTab> {
     );
   }
 
-  // 실제 이미지 선택 처리
+  // 추가: 실제 이미지 선택 처리 + API 업로드
   Future<void> _pickImage(ImageSource source) async {
     try {
       final XFile? picked = await _picker.pickImage(
@@ -125,6 +126,22 @@ class _MyPageTabState extends State<MyPageTab> {
       );
       if (picked != null) {
         setState(() => _profileImage = File(picked.path));
+
+        // 프로필 사진 서버에 업데이트
+        try {
+          await AuthService.updateProfile(profileImgUrl: picked.path);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('프로필 사진이 업데이트되었습니다.')),
+            );
+          }
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('프로필 업데이트 실패: $e')),
+            );
+          }
+        }
       }
     } catch (e) {
       // 권한 거부 등 예외 처리
@@ -168,7 +185,7 @@ class _MyPageTabState extends State<MyPageTab> {
       child: Column(
         children: [
           // ─────────────────────────────────────────────
-          // GestureDetector로 프로필 전체 영역 탭 감지
+          // ← 변경: GestureDetector로 프로필 전체 영역 탭 감지
           // ─────────────────────────────────────────────
           GestureDetector(
             onTap: _showImagePickerSheet,
@@ -184,9 +201,9 @@ class _MyPageTabState extends State<MyPageTab> {
                   ),
                   child: ClipOval(
                     child: _profileImage != null
-                    // 선택된 이미지가 있으면 표시
+                    // ← 선택된 이미지가 있으면 표시
                         ? Image.file(_profileImage!, fit: BoxFit.cover)
-                    // 없으면 기본 아이콘
+                    // ← 없으면 기본 아이콘
                         : const Icon(Icons.person, color: AppColors.gray, size: 48),
                   ),
                 ),
@@ -295,8 +312,24 @@ class _MyPageTabState extends State<MyPageTab> {
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('취소')),
         ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.red, foregroundColor: Colors.white, elevation: 0),
-            onPressed: () {
-              Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const LoginScreen()), (route) => false);
+            onPressed: () async {
+              Navigator.pop(context);
+              try {
+                await AuthService.logout();
+                if (context.mounted) {
+                  Navigator.pushAndRemoveUntil(
+                    context,
+                    MaterialPageRoute(builder: (_) => const LoginScreen()),
+                    (route) => false,
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('로그아웃 실패: $e')),
+                  );
+                }
+              }
             },
             child: const Text('로그아웃')),
       ],
@@ -310,28 +343,57 @@ class _MenuItem {
 }
 
 // ============================================================
-// 이용 내역 화면
+// 이용 내역 화면 - API 연동
 // ============================================================
-class HistoryScreen extends StatelessWidget {
+class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
 
-  static const _histories = [
-    {'date':'2024.12.20','team':'강남→김포 동승팀',  'dept':'강남역 2번출구','dest':'김포공항',   'members':4,'total':'18,400','my':'4,600', 'status':'완료'},
-    {'date':'2024.12.15','team':'홍대→인천공항 팀',  'dept':'홍대입구역',    'dest':'인천공항 T1','members':3,'total':'34,200','my':'11,400','status':'완료'},
-    {'date':'2024.12.10','team':'잠실→강남 3인팀',   'dept':'잠실역 8번',    'dest':'강남역',     'members':3,'total':'12,600','my':'4,200', 'status':'완료'},
-    {'date':'2024.11.28','team':'신촌→판교 팀',      'dept':'신촌역',         'dest':'판교역',     'members':2,'total':'28,000','my':'14,000','status':'완료'},
-  ];
+  @override
+  State<HistoryScreen> createState() => _HistoryScreenState();
+}
+
+class _HistoryScreenState extends State<HistoryScreen> {
+  List<Map<String, dynamic>> _histories = [];
+  bool _isLoading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchHistory();
+  }
+
+  Future<void> _fetchHistory() async {
+    try {
+      final history = await AuthService.getTripHistory();
+      setState(() {
+        _histories = history;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = '이용 내역을 불러오는데 실패했습니다: $e';
+        _isLoading = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.bg,
       appBar: _appBar('이용 내역'),
-      body: ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: _histories.length,
-        itemBuilder: (_, i) => _buildHistoryCard(_histories[i]),
-      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+              ? Center(child: Text(_error!, style: const TextStyle(color: AppColors.red)))
+              : _histories.isEmpty
+                  ? const Center(child: Text('이용 내역이 없습니다.', style: TextStyle(color: AppColors.gray)))
+                  : ListView.builder(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: _histories.length,
+                      itemBuilder: (_, i) => _buildHistoryCard(_histories[i]),
+                    ),
     );
   }
 
@@ -407,7 +469,7 @@ class HistoryScreen extends StatelessWidget {
 }
 
 // ============================================================
-// 설정 화면
+// 설정 화면 (변경 없음)
 // ============================================================
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -528,7 +590,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('취소')),
         ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.red, foregroundColor: Colors.white, elevation: 0),
-            onPressed: () => Navigator.pop(context),
+            onPressed: () async {
+              Navigator.pop(context);
+              try {
+                final result = await AuthService.withdraw(reason: '사용자 탈퇴');
+
+                if (context.mounted) {
+                  // is_blocked가 true면 1년 재가입 제한 메시지
+                  if (result['is_blocked'] == true) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('1년간 재가입이 제한됩니다'),
+                        backgroundColor: AppColors.red,
+                      ),
+                    );
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(result['message'] ?? '탈퇴가 완료되었습니다.')),
+                    );
+                  }
+
+                  // 로그인 화면으로 이동
+                  Navigator.pushAndRemoveUntil(
+                    context,
+                    MaterialPageRoute(builder: (_) => const LoginScreen()),
+                    (route) => false,
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('탈퇴 처리 중 오류가 발생했습니다: $e')),
+                  );
+                }
+              }
+            },
             child: const Text('탈퇴하기')),
       ],
     ));
@@ -536,7 +632,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 }
 
 // ============================================================
-// 고객지원 화면
+// 고객지원 화면 (변경 없음)
 // ============================================================
 class SupportScreen extends StatelessWidget {
   const SupportScreen({super.key});
@@ -637,7 +733,7 @@ class SupportScreen extends StatelessWidget {
 }
 
 // ============================================================
-// 서브화면 공통 헬퍼
+// 서브화면 공통 헬퍼 (변경 없음)
 // ============================================================
 AppBar _appBar(String title) => AppBar(
   title: Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
@@ -665,5 +761,665 @@ class _SubScreen extends StatelessWidget {
 }
 
 class _AuthScreen   extends StatelessWidget { const _AuthScreen();   @override Widget build(_) => const _SubScreen(title: '인증 관리', icon: '🛡️'); }
-class _MannerScreen extends StatelessWidget { const _MannerScreen(); @override Widget build(_) => const _SubScreen(title: '매너 점수 관리', icon: '⭐'); }
-class _ReportScreen extends StatelessWidget { const _ReportScreen(); @override Widget build(_) => const _SubScreen(title: '신고하기', icon: '🚨'); }
+
+// ============================================================
+// 매너 로그 화면 - TrustScoreLog 데이터 연동
+// ============================================================
+class _MannerScreen extends StatefulWidget {
+  const _MannerScreen();
+
+  @override
+  State<_MannerScreen> createState() => _MannerScreenState();
+}
+
+class _MannerScreenState extends State<_MannerScreen> {
+  List<Map<String, dynamic>> _logs = [];
+  bool _isLoading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchMannerLogs();
+  }
+
+  Future<void> _fetchMannerLogs() async {
+    try {
+      final logs = await AuthService.getTrustScoreLogs();
+      setState(() {
+        _logs = logs;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = '매너 로그를 불러오는데 실패했습니다: $e';
+        _isLoading = false;
+      });
+    }
+  }
+
+  String _formatDate(String dateStr) {
+    final date = DateTime.parse(dateStr);
+    return '${date.year}.${date.month.toString().padLeft(2, '0')}.${date.day.toString().padLeft(2, '0')}';
+  }
+
+  String _getEventDisplayName(String eventType) {
+    final names = {
+      'TRIP_LEADER_SUCCESS': '팀장 성공',
+      'TRIP_PARTICIPATION_COMPLETED': '동승 완료',
+      'FAST_SETTLEMENT': '빠른 정산',
+      'STREAK_BONUS': '연속 보너스',
+      'NORMAL_CANCEL': '일반 취소',
+      'URGENT_CANCEL': '긴급 취소',
+      'NO_SHOW': '노쇼',
+      'MANUAL_ADJUST': '수동 조정',
+    };
+    return names[eventType] ?? eventType;
+  }
+
+  Color _getDirectionColor(String direction) {
+    switch (direction) {
+      case 'GAIN':
+        return AppColors.primary;
+      case 'PENALTY':
+        return AppColors.red;
+      case 'ADJUST':
+        return AppColors.accent;
+      default:
+        return AppColors.gray;
+    }
+  }
+
+  IconData _getDirectionIcon(String direction) {
+    switch (direction) {
+      case 'GAIN':
+        return Icons.arrow_upward;
+      case 'PENALTY':
+        return Icons.arrow_downward;
+      case 'ADJUST':
+        return Icons.sync;
+      default:
+        return Icons.remove;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.bg,
+      appBar: _appBar('매너 로그'),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+              ? Center(child: Text(_error!, style: const TextStyle(color: AppColors.red)))
+              : _logs.isEmpty
+                  ? const Center(child: Text('매너 로그가 없습니다.', style: TextStyle(color: AppColors.gray)))
+                  : ListView.builder(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: _logs.length,
+                      itemBuilder: (_, index) => _buildLogCard(_logs[index]),
+                    ),
+    );
+  }
+
+  Widget _buildLogCard(Map<String, dynamic> log) {
+    final direction = log['direction'] as String;
+    final color = _getDirectionColor(direction);
+    final icon = _getDirectionIcon(direction);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(icon, color: color, size: 20),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _getEventDisplayName(log['event_type'] as String),
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.secondary,
+                        ),
+                      ),
+                      Text(
+                        _formatDate(log['created_at'] as String),
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: AppColors.gray,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(100),
+                  ),
+                  child: Text(
+                    log['applied_delta'] as String,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      color: color,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.bg,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    log['reason_detail'] as String? ?? '',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.secondary,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      const Text(
+                        '변경 후 점수: ',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: AppColors.gray,
+                        ),
+                      ),
+                      Text(
+                        '${log['score_after']}점',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.secondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================
+// 신고 화면 - 최근 동승자 조회 및 신고 API 연동
+// ============================================================
+class _ReportScreen extends StatefulWidget {
+  const _ReportScreen();
+
+  @override
+  State<_ReportScreen> createState() => _ReportScreenState();
+}
+
+// 최근 동승자 데이터 모델
+class _RecentPassenger {
+  final String id;
+  final String nickname;
+  final String rideDate;
+  final String route;
+  final String profileImage;
+
+  const _RecentPassenger({
+    required this.id,
+    required this.nickname,
+    required this.rideDate,
+    required this.route,
+    this.profileImage = '',
+  });
+}
+
+class _ReportScreenState extends State<_ReportScreen> {
+  List<_RecentPassenger> _recentPassengers = [];
+  bool _isLoading = true;
+  String? _error;
+
+  // 신고 사유 선택값
+  String _selectedReason = '노쇼';
+  final TextEditingController _detailController = TextEditingController();
+
+  // 신고 사유 목록
+  final List<String> _reportReasons = ['노쇼', '비매너 행위', '무단 이탈', '기타'];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchRecentCompanions();
+  }
+
+  @override
+  void dispose() {
+    _detailController.dispose();
+    super.dispose();
+  }
+
+  // 최근 동승자 목록 조회
+  Future<void> _fetchRecentCompanions() async {
+    try {
+      final companions = await AuthService.getRecentCompanions();
+      setState(() {
+        _recentPassengers = companions.map((c) => _RecentPassenger(
+          id: c['id'] ?? '',
+          nickname: c['nickname'] ?? '',
+          rideDate: c['ride_date'] ?? '',
+          route: c['route'] ?? '',
+        )).toList();
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = '동승자 목록을 불러오는데 실패했습니다: $e';
+        _isLoading = false;
+      });
+    }
+  }
+
+  // 신고 제출
+  Future<void> _submitReport(String reportedUserId, String tripId) async {
+    await AuthService.reportUser(
+      reportedUserId: reportedUserId,
+      tripId: tripId,
+      reason: _selectedReason,
+      detail: _detailController.text,
+    );
+  }
+
+  // 신고 폼 바텀 시트 표시
+  void _showReportBottomSheet(_RecentPassenger passenger) {
+    _selectedReason = '노쇼';
+    _detailController.clear();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setSheetState) => Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+            top: 20,
+            left: 24,
+            right: 24,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.border,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: AppColors.bg,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: const Icon(Icons.person, color: AppColors.gray, size: 28),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          passenger.nickname,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.secondary,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          passenger.route,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.gray,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                '신고 사유',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.secondary,
+                ),
+              ),
+              const SizedBox(height: 12),
+              ..._reportReasons.map((reason) => RadioListTile<String>(
+                title: Text(
+                  reason,
+                  style: const TextStyle(fontSize: 14, color: AppColors.secondary),
+                ),
+                value: reason,
+                groupValue: _selectedReason,
+                activeColor: AppColors.primary,
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                onChanged: (value) {
+                  setSheetState(() {
+                    _selectedReason = value!;
+                  });
+                },
+              )),
+              const SizedBox(height: 20),
+              const Text(
+                '상세 내용',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.secondary,
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _detailController,
+                maxLines: 4,
+                decoration: InputDecoration(
+                  hintText: '구체적인 상황을 설명해주세요...',
+                  hintStyle: const TextStyle(fontSize: 13, color: AppColors.gray),
+                  filled: true,
+                  fillColor: AppColors.bg,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: AppColors.border),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: AppColors.border),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
+                  ),
+                  contentPadding: const EdgeInsets.all(16),
+                ),
+              ),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.gray,
+                        side: const BorderSide(color: AppColors.border),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text('취소', style: TextStyle(fontWeight: FontWeight.w600)),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        await _submitReport(passenger.id, 'trip_dummy_id');
+                        if (mounted) {
+                          Navigator.pop(context);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('신고가 접수되었습니다'),
+                              backgroundColor: AppColors.primary,
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.red,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        elevation: 0,
+                      ),
+                      child: const Text(
+                        '신고 제출',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        title: const Text('신고하기', style: TextStyle(fontWeight: FontWeight.w700)),
+        backgroundColor: Colors.white,
+        foregroundColor: AppColors.secondary,
+        elevation: 0,
+        bottom: const PreferredSize(
+          preferredSize: Size.fromHeight(1),
+          child: Divider(height: 1, color: AppColors.border),
+        ),
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+              ? Center(child: Text(_error!, style: const TextStyle(color: AppColors.red)))
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      color: AppColors.bg,
+                      child: Row(
+                        children: [
+                          const Icon(Icons.info_outline, color: AppColors.primary, size: 20),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              '최근 동승자 중 신고할 이용자를 선택해주세요.\n허위 신고 시 제재를 받을 수 있습니다.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: AppColors.secondary.withOpacity(0.8),
+                                height: 1.5,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(20, 20, 20, 12),
+                      child: Text(
+                        '최근 동승자',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.secondary,
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: _recentPassengers.isEmpty
+                          ? const Center(child: Text('최근 동승자가 없습니다.', style: TextStyle(color: AppColors.gray)))
+                          : ListView.builder(
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              itemCount: _recentPassengers.length,
+                              itemBuilder: (context, index) {
+                                final passenger = _recentPassengers[index];
+                                return _buildPassengerCard(passenger);
+                              },
+                            ),
+                    ),
+                  ],
+                ),
+    );
+  }
+
+  Widget _buildPassengerCard(_RecentPassenger passenger) {
+    return GestureDetector(
+      onTap: () => _showReportBottomSheet(passenger),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border.all(color: AppColors.border),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.03),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(
+                color: AppColors.bg,
+                shape: BoxShape.circle,
+                border: Border.all(color: AppColors.border),
+              ),
+              child: const Icon(Icons.person, color: AppColors.gray, size: 28),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    passenger.nickname,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.secondary,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      const Icon(Icons.calendar_today, size: 12, color: AppColors.gray),
+                      const SizedBox(width: 4),
+                      Text(
+                        passenger.rideDate,
+                        style: const TextStyle(fontSize: 12, color: AppColors.gray),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      const Icon(Icons.route, size: 12, color: AppColors.primary),
+                      const SizedBox(width: 4),
+                      Flexible(
+                        child: Text(
+                          passenger.route,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppColors.red.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.flag, size: 14, color: AppColors.red),
+                  SizedBox(width: 4),
+                  Text(
+                    '신고',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.red,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
