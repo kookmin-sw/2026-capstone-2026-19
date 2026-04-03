@@ -350,86 +350,74 @@ class AuthService {
     }
   }
 
-  // =========================================================
-  // 인증번호 전송 (회원가입용)
-  // =========================================================
-  static Future<Map<String, dynamic>> sendVerificationCode({
-    required String phone,
-  }) async {
-    if (useDummyData) {
-      await Future.delayed(const Duration(milliseconds: 500));
-      return {'success': true, 'message': '인증번호가 전송되었습니다.'};
-    }
 
-    final uri = Uri.parse('$baseUrl/auth/send-code/');
-    final response = await http.post(
-      uri,
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-      body: jsonEncode({'phone': phone}),
-    );
-
-    return _handleResponse(response);
-  }
-
-  // =========================================================
-  // 인증번호 확인 (회원가입용)
-  // =========================================================
-  static Future<Map<String, dynamic>> verifyCode({
-    required String phone,
-    required String code,
-  }) async {
-    if (useDummyData) {
-      await Future.delayed(const Duration(milliseconds: 500));
-      return {'success': true, 'message': '인증번호가 확인되었습니다.'};
-    }
-
-    final uri = Uri.parse('$baseUrl/auth/verify-code/');
-    final response = await http.post(
-      uri,
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-      body: jsonEncode({'phone': phone, 'code': code}),
-    );
-
-    return _handleResponse(response);
-  }
 
   // =========================================================
   // 회원가입
   // =========================================================
+ class AuthService {
+  // 실제 서버 도메인으로 수정하세요
+  static const String baseUrl = 'https://your-api-domain.com';
+  static const bool useDummyData = false; // 테스트 시 true로 변경
+
   static Future<Map<String, dynamic>> signup({
-    required String name,
-    required String gender,
-    required String phone,
     required String username,
     required String password,
+    required String nickname,
+    required String phoneNumber,
+    required String gender,
+    required String idToken,
   }) async {
+    // 1. 테스트용 더미 데이터 로직
     if (useDummyData) {
       await Future.delayed(const Duration(seconds: 1));
-      return {'success': true, 'message': '회원가입이 완료되었습니다.'};
+      return {'success': true, 'message': '더미 데이터 회원가입 성공!'};
     }
 
-    final uri = Uri.parse('$baseUrl/auth/signup/');
-    final response = await http.post(
-      uri,
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-      body: jsonEncode({
-        'name': name,
-        'gender': gender,
-        'phone': phone,
-        'username': username,
-        'password': password,
-      }),
-    );
+    // 2. 최신 이미지 명세 반영 (Endpoint: /accounts/signup/)
+    final uri = Uri.parse('$baseUrl/accounts/signup/');
 
-    return _handleResponse(response);
+    try {
+      final response = await http.post(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: jsonEncode({
+          'username': username,
+          'password': password,
+          'nickname': nickname,
+          'phone_number': phoneNumber,
+          'gender': gender,
+          'ID Token': idToken, // 명세서의 빨간색 필드명 그대로 적용
+          'created_at': DateTime.now().toIso8601String(),
+          'updated_at': DateTime.now().toIso8601String(),
+        }),
+      );
+
+      // 3. 응답 처리 호출
+      return _handleResponse(response);
+    } catch (e) {
+      return {'success': false, 'message': '연결 오류: $e'};
+    }
+  }
+
+  // 응답 처리 전문 함수
+  static Map<String, dynamic> _handleResponse(http.Response response) {
+    final Map<String, dynamic> body = jsonDecode(response.body);
+
+    if (response.statusCode == 201 || response.statusCode == 200) {
+      // 이미지의 Response 명세인 'message' 필드를 반환
+      return {
+        'success': true,
+        'message': body['message'] ?? '회원가입이 완료되었습니다.'
+      };
+    } else {
+      return {
+        'success': false,
+        'message': body['message'] ?? '오류가 발생했습니다. (에러 코드: ${response.statusCode})'
+      };
+    }
   }
 }
