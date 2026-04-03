@@ -60,7 +60,7 @@ class Migration(migrations.Migration):
             name='TrustScoreLog',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('event_type', models.CharField(choices=[('TRIP_LEADER_SUCCESS', 'TRIP_LEADER_SUCCESS'), ('TRIP_PARTICIPATION_COMPLETED', 'TRIP_PARTICIPATION_COMPLETED'), ('FAST_SETTLEMENT', 'FAST_SETTLEMENT'), ('STREAK_BONUS', 'STREAK_BONUS'), ('NORMAL_CANCEL', 'NORMAL_CANCEL'), ('URGENT_CANCEL', 'URGENT_CANCEL'), ('NO_SHOW', 'NO_SHOW'), ('MANUAL_ADJUST', 'MANUAL_ADJUST')], max_length=40)),
+                ('event_type', models.CharField(choices=[('TRIP_LEADER_SUCCESS', 'TRIP_LEADER_SUCCESS'), ('TRIP_PARTICIPATION_COMPLETE', 'TRIP_PARTICIPATION_COMPLETE'), ('FAST_SETTLEMENT', 'FAST_SETTLEMENT'), ('STREAK_BONUS', 'STREAK_BONUS'), ('NORMAL_CANCEL', 'NORMAL_CANCEL'), ('URGENT_CANCEL', 'URGENT_CANCEL'), ('NO_SHOW', 'NO_SHOW'), ('MANUAL_ADJUST', 'MANUAL_ADJUST')], max_length=40)),
                 ('direction', models.CharField(choices=[('GAIN', 'GAIN'), ('PENALTY', 'PENALTY'), ('ADJUST', 'ADJUST')], max_length=10)),
                 ('raw_base_score', models.DecimalField(decimal_places=1, max_digits=4, validators=[django.core.validators.MinValueValidator(Decimal('-20.0')), django.core.validators.MaxValueValidator(Decimal('20.0'))])),
                 ('applied_delta', models.DecimalField(decimal_places=1, max_digits=4, validators=[django.core.validators.MinValueValidator(Decimal('-20.0')), django.core.validators.MaxValueValidator(Decimal('20.0'))])),
@@ -70,7 +70,7 @@ class Migration(migrations.Migration):
                 ('reason_detail', models.TextField(blank=True, null=True)),
                 ('streak_count_after', models.PositiveIntegerField(blank=True, null=True)),
                 ('is_warning_triggered', models.BooleanField(default=False)),
-                ('created_by_system', models.BooleanField(default=True)),
+                ('created_by_system', models.BooleanField(default=False)),
                 ('created_at', models.DateTimeField(auto_now_add=True)),
                 ('actor_user', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='performed_trust_score_logs', to=settings.AUTH_USER_MODEL)),
                 ('related_penalty', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='trust_score_logs', to='moderation.penalty')),

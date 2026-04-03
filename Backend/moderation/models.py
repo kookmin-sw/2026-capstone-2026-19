@@ -118,7 +118,7 @@ class TrustScoreLog(models.Model):
 
     EVENT_TYPE_CHOICES = [
         ("TRIP_LEADER_SUCCESS", "TRIP_LEADER_SUCCESS"),
-        ("TRIP_PARTICIPATION_COMPLETED", "TRIP_PARTICIPATION_COMPLETED"),
+        ("TRIP_PARTICIPATION_COMPLETE", "TRIP_PARTICIPATION_COMPLETE"),
         ("FAST_SETTLEMENT", "FAST_SETTLEMENT"),
         ("STREAK_BONUS", "STREAK_BONUS"),
         ("NORMAL_CANCEL", "NORMAL_CANCEL"),
@@ -211,7 +211,7 @@ class TrustScoreLog(models.Model):
     streak_count_after = models.PositiveIntegerField(blank=True, null=True)
     is_warning_triggered = models.BooleanField(default=False)
 
-    created_by_system = models.BooleanField(default=True)
+    created_by_system = models.BooleanField(default=False)
     actor_user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
