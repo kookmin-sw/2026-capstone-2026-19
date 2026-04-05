@@ -15,10 +15,15 @@
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true">
 
-        <!-- 네이버 지도 Client ID -->
+        <!-- 카카오맵 SDK AppKey -->
         <meta-data
-            android:name="com.naver.maps.map.CLIENT_ID"
-            android:value="95qc7sfzkj"/>
+            android:name="com.kakao.sdk.AppKey"
+            android:value="ab5f9937336b573d4e68ad90b988bd9c"/>
+
+        <!-- Impeller 비활성화 (카카오맵 웹뷰 충돌 방지) -->
+        <meta-data
+            android:name="io.flutter.embedding.android.EnableImpeller"
+            android:value="false" />
 
         <activity
             android:name=".MainActivity"
