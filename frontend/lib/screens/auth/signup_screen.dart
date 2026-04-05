@@ -1,12 +1,10 @@
 // ============================================================
 // lib/screens/auth/signup_screen.dart
-// 회원가입 화면 — 이름, 성별, 전화번호, 아이디, 비밀번호, 본인인증
+// 회원가입 화면 — 이름, 성별, 전화번호, 아이디, 비밀번호, 본인인증 (AuthService 제거 버전)
 // ============================================================
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../utils/colors.dart';
-import '../../utils/routes.dart';
-import 'package:taximate/service/auth_service.dart';
 
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
@@ -36,61 +34,50 @@ class _SignupScreenState extends State<SignupScreen> {
 
   @override
   void dispose() {
-    _nameCtrl.dispose(); _phoneCtrl.dispose(); _idCtrl.dispose();
-    _pwCtrl.dispose(); _pwConfCtrl.dispose(); _codeCtrl.dispose();
+    _nameCtrl.dispose();
+    _phoneCtrl.dispose();
+    _idCtrl.dispose();
+    _pwCtrl.dispose();
+    _pwConfCtrl.dispose();
+    _codeCtrl.dispose();
     super.dispose();
   }
 
-  // -- 인증번호 전송 -------------------------------------------
-  // 실제 구현 시 Firebase Phone Auth 또는 SMS API 연동
+  // -- 1. 인증번호 전송 (더미 처리) --------------------------------
   Future<void> _sendVerificationCode() async {
     if (_phoneCtrl.text.length < 10) {
       _showSnackBar('올바른 전화번호를 입력해주세요.', isError: true);
       return;
     }
 
-    // --- API 호출 시작 ---
-    final result = await AuthService.sendVerificationCode(phone: _phoneCtrl.text);
+    // AuthService 제거: 1초 대기 후 무조건 성공하는 것으로 처리
+    await Future.delayed(const Duration(seconds: 1));
 
-    if (result['success'] == true) {
-      setState(() { _codeSent = true; _countdown = 180; }); // 3분 카운트다운
-      _showSnackBar('인증번호가 전송되었습니다.');
-
-      // 카운트다운 타이머
-      Future.doWhile(() async {
-        await Future.delayed(const Duration(seconds: 1));
-        if (!mounted) return false;
-        setState(() => _countdown--);
-        return _countdown > 0;
-      });
-    } else {
-      _showSnackBar('번호 전송에 실패했습니다. 다시 시도해주세요.', isError: true);
-    }
+    setState(() {
+      _codeSent = true;
+      _countdown = 180; // 3분 타이머
+    });
+    _showSnackBar('인증번호가 전송되었습니다.');
   }
 
-  // -- 인증번호 확인 ---------------------------------------------
-  // -- 인증번호 확인 (수정본) ---------------------------------------------
+  // -- 2. 인증번호 확인 (더미 처리) --------------------------------
   Future<void> _verifyCode() async {
-    // 1. 입력값 체크: 아무것도 입력 안 했을 때 서버 요청을 막아줍니다.
-    if (_codeCtrl.text.trim().isEmpty) {
-      _showSnackBar('인증번호를 입력해주세요.', isError: true);
+    if (_codeCtrl.text.trim().length < 6) {
+      _showSnackBar('인증번호 6자리를 모두 입력해주세요.', isError: true);
       return;
     }
 
-    // 2. 서버 검증 요청: 비동기로 서버의 응답을 기다립니다.
-    final result = await AuthService.verifyCode(phone: _phoneCtrl.text, code: _codeCtrl.text.trim());
+    // AuthService 제거: 1초 대기 후 무조건 성공하는 것으로 처리
+    await Future.delayed(const Duration(seconds: 1));
 
-    if (result['success'] == true) {
-      // 3. 성공 시: UI 상태를 '인증 완료'로 변경
-      setState(() => _phoneVerified = true);
-      _showSnackBar('본인인증이 완료되었습니다! ');
-    } else {
-      // 4. 실패 시: 에러 메시지 출력
-      _showSnackBar('인증번호가 올바르지 않거나 만료되었습니다.', isError: true);
-    }
+    setState(() {
+      _phoneVerified = true;
+      _countdown = 0;
+    });
+    _showSnackBar('본인인증이 완료되었습니다.');
   }
 
-  // -- 회원가입 처리 --------------------------------------------
+  // -- 3. 회원가입 처리 (더미 처리) --------------------------------
   Future<void> _handleSignup() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -105,68 +92,22 @@ class _SignupScreenState extends State<SignupScreen> {
 
     setState(() => _isLoading = true);
 
-    // --- API 호출 시작 ---
-    final result = await AuthService.signup(
-      name: _nameCtrl.text.trim(),
-      gender: _selectedGender!,
-      phone: _phoneCtrl.text.trim(),
-      username: _idCtrl.text.trim(),
-      password: _pwCtrl.text.trim(),
-    );
+    try {
+      // AuthService 제거: 1.5초 대기 후 가입 성공으로 처리
+      await Future.delayed(const Duration(milliseconds: 1500));
 
-    setState(() => _isLoading = false);
-
-    if (result['success']) {
-      _showSuccessDialog();
-    } else {
-      _showSnackBar(result['message'], isError: true);
+      if (mounted) {
+        _showSnackBar('회원가입이 완료되었습니다!');
+        Navigator.pop(context); // 가입 성공 시 이전 화면(로그인)으로 이동
+      }
+    } catch (e) {
+      if (mounted) _showSnackBar('오류가 발생했습니다: $e', isError: true);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  void _showSuccessDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 12),
-            Container(
-              width: 64, height: 64,
-              decoration: BoxDecoration(color: AppColors.primaryLight, shape: BoxShape.circle),
-              child: const Icon(Icons.check, color: AppColors.primary, size: 36),
-            ),
-            const SizedBox(height: 16),
-            const Text('가입 완료!', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
-            const SizedBox(height: 8),
-            Text('${_nameCtrl.text}님, 환영합니다 🎉',
-                style: const TextStyle(fontSize: 14, color: AppColors.gray), textAlign: TextAlign.center),
-            const SizedBox(height: 20),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  elevation: 0,
-                ),
-                onPressed: () {
-                  // 모든 이전 화면을 지우고 로그인 화면으로
-                  Navigator.pushNamedAndRemoveUntil(
-                      context, AppRoutes.login, (route) => false);
-                },
-                child: const Text('로그인 하러 가기', style: TextStyle(fontWeight: FontWeight.w700)),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
+  // -- 스낵바 & 헬퍼 함수 ------------------------------------------
   void _showSnackBar(String msg, {bool isError = false}) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(msg),
@@ -205,7 +146,6 @@ class _SignupScreenState extends State<SignupScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
 
-
               // 1. 이름
               _sectionLabel('이름', Icons.badge_outlined),
               const SizedBox(height: 6),
@@ -219,7 +159,6 @@ class _SignupScreenState extends State<SignupScreen> {
                 },
               ),
               const SizedBox(height: 20),
-
 
               // 2. 성별
               _sectionLabel('성별', Icons.wc_outlined),
@@ -254,12 +193,10 @@ class _SignupScreenState extends State<SignupScreen> {
               ),
               const SizedBox(height: 20),
 
-
               // 3. 전화번호 + 본인인증
               _sectionLabel('전화번호 & 본인인증', Icons.phone_outlined),
               const SizedBox(height: 6),
 
-              // 전화번호 입력 + 인증번호 전송 버튼
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -267,11 +204,10 @@ class _SignupScreenState extends State<SignupScreen> {
                     child: TextFormField(
                       controller: _phoneCtrl,
                       keyboardType: TextInputType.phone,
-                      // inputFormatters: 숫자만 입력 가능하도록 필터
                       inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                       maxLength: 11,
                       decoration: _inputDeco(hint: '01012345678').copyWith(counterText: ''),
-                      enabled: !_phoneVerified, // 인증 완료 시 비활성화
+                      enabled: !_phoneVerified,
                       validator: (v) {
                         if (v == null || v.isEmpty) return '전화번호를 입력해주세요.';
                         if (v.length < 10) return '올바른 전화번호를 입력해주세요.';
@@ -299,7 +235,6 @@ class _SignupScreenState extends State<SignupScreen> {
                 ],
               ),
 
-              // 인증번호 입력 (전송 후 표시)
               if (_codeSent && !_phoneVerified) ...[
                 const SizedBox(height: 10),
                 Row(
@@ -313,7 +248,6 @@ class _SignupScreenState extends State<SignupScreen> {
                         maxLength: 6,
                         decoration: _inputDeco(hint: '인증번호 6자리 입력').copyWith(
                           counterText: '',
-                          // 카운트다운 타이머를 suffixIcon으로 표시
                           suffixIcon: _countdown > 0
                               ? Padding(
                             padding: const EdgeInsets.symmetric(vertical: 14),
@@ -343,7 +277,6 @@ class _SignupScreenState extends State<SignupScreen> {
                 ),
               ],
 
-              // 인증 완료 표시
               if (_phoneVerified) ...[
                 const SizedBox(height: 8),
                 Container(
@@ -365,7 +298,6 @@ class _SignupScreenState extends State<SignupScreen> {
               ],
               const SizedBox(height: 20),
 
-
               // 4. 아이디
               _sectionLabel('아이디', Icons.alternate_email),
               const SizedBox(height: 6),
@@ -380,7 +312,6 @@ class _SignupScreenState extends State<SignupScreen> {
                 },
               ),
               const SizedBox(height: 20),
-
 
               // 5. 비밀번호
               _sectionLabel('비밀번호', Icons.lock_outline),
@@ -405,7 +336,6 @@ class _SignupScreenState extends State<SignupScreen> {
               ),
               const SizedBox(height: 12),
 
-              // 비밀번호 확인
               TextFormField(
                 controller: _pwConfCtrl,
                 obscureText: !_pwConfVisible,
