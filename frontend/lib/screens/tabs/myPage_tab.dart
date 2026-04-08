@@ -21,7 +21,6 @@ class _MyPageTabState extends State<MyPageTab> {
   final ImagePicker _picker = ImagePicker();
 
   late final List<_MenuItem> _menus = [
-    _MenuItem(icon: Icons.verified_user_outlined,  label: '인증 관리',        sub: '본인 및 신원 인증',    screen: const _AuthScreen()),
     // 프로필 관리
     _MenuItem(icon: Icons.star_outline,            label: '회원 매너 점수 관리', sub: '현재 4.8점',         screen: const _MannerScreen()),
     _MenuItem(icon: Icons.local_taxi_outlined,     label: '이용 내역',         sub: '총 12건',              screen: const HistoryScreen()),
@@ -760,7 +759,6 @@ class _SubScreen extends StatelessWidget {
   );
 }
 
-class _AuthScreen   extends StatelessWidget { const _AuthScreen();   @override Widget build(_) => const _SubScreen(title: '인증 관리', icon: '🛡️'); }
 
 // ============================================================
 // 매너 로그 화면 - TrustScoreLog 데이터 연동
