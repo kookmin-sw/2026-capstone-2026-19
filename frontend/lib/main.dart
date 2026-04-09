@@ -3,7 +3,7 @@
 // ============================================================
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_naver_map/flutter_naver_map.dart';
+import 'package:kakao_map_plugin/kakao_map_plugin.dart';
 import 'package:geolocator/geolocator.dart';
 import 'screens/auth/splash_screen.dart';
 import 'screens/auth/login_screen.dart';
@@ -20,16 +20,12 @@ void main() async {
   // Flutter 엔진 초기화 (async main 사용 시 필수)
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 네이버 지도 SDK 초기화 (웹에서는 제외)
+  // 카카오맵 SDK 초기화 (웹에서는 제외)
   if (!kIsWeb) {
-    await NaverMapSdk.instance.initialize(
-      clientId: '95qc7sfzkj',
-      onAuthFailed: (error) {
-        debugPrint('인증 실패: $error');
-      },
+    AuthRepository.initialize(
+      appKey: '2c89ba1eee07b01fbfb0d1ca3220eff2',
+      baseUrl: '',
     );
-  } else {
-    debugPrint('웹 환경이므로 네이버 지도 초기화를 건너뜁니다.');
   }
 
   runApp(const TaxiMateApp());
@@ -99,7 +95,7 @@ class _MainScreenState extends State<MainScreen> {
         // 매칭 탭의 핀 생성 탭(인덱스 1)으로 바로 이동하려면 아래처럼
       }),
     ),
-    const MatchingTab(),
+    MatchingTab(onGoHome: () => setState(() => _selectedIndex = 0)),
     const ActiveTab(),
     const MessageTab(),
     const MyPageTab(),

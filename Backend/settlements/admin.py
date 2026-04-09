@@ -8,11 +8,10 @@ class PaymentChannelAdmin(admin.ModelAdmin):
     list_display = (
         "id",
         "trip",
-        "provider",
         "updated_by",
         "updated_at",
     )
-    list_filter = ("provider", "updated_at")
+    list_filter = ("updated_at",)
     search_fields = (
         "trip__depart_name",
         "trip__arrive_name",

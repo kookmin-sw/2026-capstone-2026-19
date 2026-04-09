@@ -30,7 +30,7 @@ class Migration(migrations.Migration):
                 ('is_staff', models.BooleanField(default=False, help_text='Designates whether the user can log into this admin site.', verbose_name='staff status')),
                 ('is_active', models.BooleanField(default=True, help_text='Designates whether this user should be treated as active. Unselect this instead of deleting accounts.', verbose_name='active')),
                 ('date_joined', models.DateTimeField(default=django.utils.timezone.now, verbose_name='date joined')),
-                ('username', models.CharField(max_length=30, unique=True)),
+                ('username', models.CharField(max_length=150, unique=True)),
                 ('nickname', models.CharField(max_length=20, unique=True)),
                 ('phone_number', models.CharField(max_length=11, unique=True, validators=[django.core.validators.RegexValidator(message='전화번호는 하이픈 없이 01012341234 형식이어야 합니다.', regex='^010[0-9]{8}$')])),
                 ('gender', models.CharField(choices=[('M', '남'), ('F', '여')], max_length=1)),

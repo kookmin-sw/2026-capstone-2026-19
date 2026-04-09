@@ -4,10 +4,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import '../../utils/colors.dart';
+import '../location_search_screen.dart';
+import 'home_tab.dart' as home;
 
 // 매칭 탭 전체 레이아웃 (내부 상태 변경 시 화면 리빌드)
 class MatchingTab extends StatefulWidget {
-  const MatchingTab({super.key});
+  final VoidCallback? onGoHome;
+  const MatchingTab({super.key, this.onGoHome});
   @override
   State<MatchingTab> createState() => _MatchingTabState();
 }
@@ -18,12 +21,8 @@ class _MatchingTabState extends State<MatchingTab>
 
   late TabController _tabController; // 검색, 생성 탭 전환 제어 컨트롤러
   final TextEditingController _searchCtrl = TextEditingController(); // 검색창 입력 제어
-  bool _searchFocused = false; // 최근 검색어 노출 여부 판단
   String _searchQuery = ''; // 현재 입력된 검색어 저장
   String? _selectedCardId; // 카드 펼침 상태
-
-  // 더미 데이터 - 최근 검색어 리스트
-  List<String> _recentSearches = ['강남역', '홍대입구', '잠실역', '판교역'];
 
   // 핀 생성 폼 컨트롤러
   final TextEditingController _deptCtrl = TextEditingController();  // 출발지
@@ -34,25 +33,20 @@ class _MatchingTabState extends State<MatchingTab>
   TimeOfDay _selectedTime = TimeOfDay.now();  // 출발 시간 (초기값:현재 시각)
   bool _pinCreated = false;  // 핀 생성 시 성공 배너 표시 여부
 
+  // 출발지/목적지 좌표 저장
+  double? _deptLat;
+  double? _deptLng;
+  double? _destLat;
+  double? _destLng;
+
   // 좌석 옵션 상수
   static const _seats = ['조수석', '왼쪽 창가', '가운데', '오른쪽 창가'];
-
-  // 더미 데이터 - 핀 목록
-  static const _pins = [
-    {'hostId':'taxi_kim',  'dept':'강남역 2번출구','dest':'김포공항',   'time':'14:30','max':4,'cur':2},
-    {'hostId':'seoul_lee', 'dept':'홍대입구역',    'dest':'인천공항 T1','time':'15:00','max':3,'cur':1},
-    {'hostId':'rider_park','dept':'잠실역 8번',    'dest':'강남역',      'time':'14:45','max':4,'cur':3},
-    {'hostId':'go_choi',   'dept':'신촌역',         'dest':'판교역',      'time':'16:00','max':2,'cur':0},
-  ];
-
-  // ================================================================================================================
 
   // 생명주기 관리
   @override
   void initState() { // 트리에 위젯 첫 삽입 시 초기 설정 수행
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    _searchCtrl.addListener(() => setState(() => _searchQuery = _searchCtrl.text));
   }
 
   @override
@@ -64,11 +58,10 @@ class _MatchingTabState extends State<MatchingTab>
   }
 
   // 현재 검색어에 따라 핀 목록 필터링
-  List<Map<String, dynamic>> get _filteredPins {
-    if (_searchQuery.isEmpty) return _pins;
-    return _pins.where((p) =>
-    (p['dept'] as String).contains(_searchQuery) ||
-        (p['dest'] as String).contains(_searchQuery)
+  List<home.RidePin> get _filteredPins {
+    if (_searchQuery.isEmpty) return home.globalPins;
+    return home.globalPins.where((p) =>
+    p.dept.contains(_searchQuery) || p.dest.contains(_searchQuery)
     ).toList();
   }
 
@@ -130,81 +123,62 @@ class _MatchingTabState extends State<MatchingTab>
   // 검색 탭 화면 위젯
   // ============================================================
   Widget _buildSearchTab() {
-    return GestureDetector(
-      onTap: () { FocusScope.of(context).unfocus(); setState(() => _searchFocused = false); },
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Focus(
-              onFocusChange: (f) => setState(() => _searchFocused = f),
-              child: TextField(
-                controller: _searchCtrl,
-                decoration: InputDecoration(
-                  hintText: '출발지 또는 목적지 검색...',
-                  prefixIcon: const Icon(Icons.search, color: AppColors.gray),
-                  suffixIcon: _searchQuery.isNotEmpty
-                      ? IconButton(
-                      icon: const Icon(Icons.clear, color: AppColors.gray),
-                      onPressed: () { _searchCtrl.clear(); setState(() => _searchQuery = ''); })
-                      : null,
-                  filled: true, fillColor: AppColors.bg,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: AppColors.border)),
-                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: AppColors.border)),
-                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: AppColors.primary, width: 1.5)),
-                ),
-              ),
-            ),
-          ),
-          Expanded(
-            child: _searchFocused && _searchQuery.isEmpty
-                ? _buildRecentSearches()
-                : _buildPinList(),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // 최근 검색 위젯
-  Widget _buildRecentSearches() {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          child: Row(
-            children: [
-              const Text('최근 검색어', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.secondary)),
-              const Spacer(),
-              TextButton(
-                onPressed: () => setState(() => _recentSearches = []),
-                style: TextButton.styleFrom(foregroundColor: AppColors.gray),
-                child: const Text('전체 삭제', style: TextStyle(fontSize: 11)),
+          padding: const EdgeInsets.all(16),
+          child: GestureDetector(
+            onTap: () async {
+              final result = await Navigator.push<Map<String, dynamic>>(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const LocationSearchScreen(title: '장소'),
+                ),
+              );
+              if (result != null) {
+                setState(() {
+                  _searchCtrl.text = result['name'] as String;
+                  _searchQuery = result['name'] as String;
+                });
+              }
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: AppColors.bg,
+                border: Border.all(color: AppColors.border),
+                borderRadius: BorderRadius.circular(14),
               ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: _recentSearches.length,
-            itemBuilder: (_, i) => ListTile(
-              contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-              leading: const Icon(Icons.history, color: AppColors.gray, size: 18),
-              title: Text(_recentSearches[i], style: const TextStyle(fontSize: 14)),
-              trailing: IconButton(
-                icon: const Icon(Icons.close, size: 16, color: AppColors.gray),
-                onPressed: () => setState(() => _recentSearches.removeAt(i)),
+              child: Row(
+                children: [
+                  const Icon(Icons.search, color: AppColors.gray, size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      _searchQuery.isEmpty ? '출발지 또는 목적지 검색...' : _searchQuery,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: _searchQuery.isEmpty ? AppColors.gray : AppColors.secondary,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (_searchQuery.isNotEmpty)
+                    GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          _searchCtrl.clear();
+                          _searchQuery = '';
+                        });
+                      },
+                      child: const Icon(Icons.clear, color: AppColors.gray, size: 18),
+                    ),
+                ],
               ),
-              onTap: () {
-                _searchCtrl.text = _recentSearches[i];
-                setState(() { _searchQuery = _recentSearches[i]; _searchFocused = false; });
-                FocusScope.of(context).unfocus();
-              },
             ),
           ),
         ),
+        Expanded(child: _buildPinList()),
       ],
     );
   }
@@ -233,13 +207,13 @@ class _MatchingTabState extends State<MatchingTab>
   }
 
   // 핀 목록 카드 위젯
-  Widget _buildSearchCard(Map<String, dynamic> pin) {
-    final isFull = (pin['cur'] as int) >= (pin['max'] as int);
-    final isSelected = _selectedCardId == pin['hostId'];
+  Widget _buildSearchCard(home.RidePin pin) {
+    final isFull = pin.cur >= pin.max;
+    final isSelected = _selectedCardId == pin.hostId;
 
     return GestureDetector(
       onTap: () => setState(() =>
-      _selectedCardId = isSelected ? null : pin['hostId'] as String),
+      _selectedCardId = isSelected ? null : pin.hostId),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         margin: const EdgeInsets.only(bottom: 12),
@@ -269,19 +243,19 @@ class _MatchingTabState extends State<MatchingTab>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('@${pin['hostId']}',
+                      Text('@${pin.hostId}',
                           style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.secondary)),
                       const SizedBox(height: 6),
                       Row(
                         children: [
-                          Flexible(child: Text('${pin['dept']}',
+                          Flexible(child: Text(pin.dept,
                               style: const TextStyle(fontSize: 12, color: AppColors.primary, fontWeight: FontWeight.w600),
                               overflow: TextOverflow.ellipsis)),
                           const Padding(
                             padding: EdgeInsets.symmetric(horizontal: 4),
                             child: Text('→', style: TextStyle(color: AppColors.secondary, fontWeight: FontWeight.w700)),
                           ),
-                          Flexible(child: Text('${pin['dest']}',
+                          Flexible(child: Text(pin.dest,
                               style: const TextStyle(fontSize: 12, color: AppColors.secondary),
                               overflow: TextOverflow.ellipsis)),
                         ],
@@ -296,7 +270,7 @@ class _MatchingTabState extends State<MatchingTab>
                   child: Column(
                     children: [
                       const Text('출발', style: TextStyle(fontSize: 9, color: Colors.white70)),
-                      Text('${pin['time']}',
+                      Text(pin.time,
                           style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Colors.white)),
                     ],
                   ),
@@ -306,17 +280,17 @@ class _MatchingTabState extends State<MatchingTab>
             const SizedBox(height: 12),
             Row(
               children: [
-                ...List.generate(pin['max'] as int, (j) => Container(
+                ...List.generate(pin.max, (j) => Container(
                   width: 22, height: 22, margin: const EdgeInsets.only(right: 4),
                   decoration: BoxDecoration(
-                    color: j < (pin['cur'] as int) ? AppColors.primary : AppColors.bg,
+                    color: j < pin.cur ? AppColors.primary : AppColors.bg,
                     borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: j < (pin['cur'] as int) ? AppColors.primary : AppColors.border),
+                    border: Border.all(color: j < pin.cur ? AppColors.primary : AppColors.border),
                   ),
-                  child: j < (pin['cur'] as int) ? const Icon(Icons.person, color: Colors.white, size: 13) : null,
+                  child: j < pin.cur ? const Icon(Icons.person, color: Colors.white, size: 13) : null,
                 )),
                 const SizedBox(width: 6),
-                Text('${pin['cur']}/${pin['max']}명', style: const TextStyle(fontSize: 11, color: AppColors.gray)),
+                Text('${pin.cur}/${pin.max}명', style: const TextStyle(fontSize: 11, color: AppColors.gray)),
               ],
             ),
 
@@ -343,7 +317,14 @@ class _MatchingTabState extends State<MatchingTab>
                       onPressed: isFull ? null : () {
                         Navigator.push(
                           context,
-                          MaterialPageRoute(builder: (_) => RideJoinScreen(pin: pin)),
+                          MaterialPageRoute(builder: (_) => RideJoinScreen(pin: {
+                            'hostId': pin.hostId,
+                            'dept': pin.dept,
+                            'dest': pin.dest,
+                            'time': pin.time,
+                            'max': pin.max,
+                            'cur': pin.cur,
+                          })),
                         );
                       },
                       child: Text(isFull ? '마감' : '참여하기',
@@ -429,12 +410,22 @@ class _MatchingTabState extends State<MatchingTab>
 
           // 출발지 입력
           _label('📍 출발지'), const SizedBox(height: 6),
-          _textField(_deptCtrl, '예: 강남역 2번 출구'),
+          _locationTextField(
+            controller: _deptCtrl,
+            hint: '출발지 검색하기',
+            isDeparture: true,
+            onTap: () => _openLocationSearch(true),
+          ),
           const SizedBox(height: 14),
 
           // 목적지 입력
           _label('🏁 목적지'), const SizedBox(height: 6),
-          _textField(_destCtrl, '예: 김포공항 국내선'),
+          _locationTextField(
+            controller: _destCtrl,
+            hint: '목적지 검색하기',
+            isDeparture: false,
+            onTap: () => _openLocationSearch(false),
+          ),
           const SizedBox(height: 14),
 
           // 출발 시간 선택
@@ -527,7 +518,7 @@ class _MatchingTabState extends State<MatchingTab>
           ),
           const SizedBox(height: 16),
 
-          // 카카오페이 링크 입력 (필수)
+          // 카카오페이 링크 입력 (필수로 하기?)
           _label('💛 카카오페이 링크 (필수)'), const SizedBox(height: 6),
           TextField(
             controller: _kakaoCtrl,
@@ -624,10 +615,51 @@ class _MatchingTabState extends State<MatchingTab>
       ));
       return;
     }
+
+    // 위도/경도 검사
+    if (_deptLat == null || _deptLng == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('출발지를 검색을 통해 선택해주세요.'),
+        backgroundColor: AppColors.red,
+      ));
+      return;
+    }
+    if (_destLat == null || _destLng == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('목적지를 검색을 통해 선택해주세요.'),
+        backgroundColor: AppColors.red,
+      ));
+      return;
+    }
+
+    // 실제 핀 생성 및 globalPins에 추가
+    final newPin = home.RidePin(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      hostId: 'my_username',
+      dept: _deptCtrl.text,
+      dest: _destCtrl.text,
+      time: '${_selectedTime.hour.toString().padLeft(2, '0')}:${_selectedTime.minute.toString().padLeft(2, '0')}',
+      max: _maxPeople,
+      cur: 1,
+      lat: _deptLat!,
+      lng: _deptLng!,
+    );
+
+    // globalPins에 추가
+    home.globalPins.add(newPin);
+
+    print('핀 생성 및 추가: ${newPin.dept}(${newPin.lat}, ${newPin.lng}) -> ${newPin.dest}');
+
     setState(() => _pinCreated = true); // 성공 배너 표시
 
     // 폼 입력값 초기화 (생성한 핀 제출 후 비우기)
     _deptCtrl.clear(); _destCtrl.clear(); _kakaoCtrl.clear();
+    _deptLat = null; _deptLng = null;
+    _destLat = null; _destLng = null;
+
+    // 홈 화면으로 자동 이동
+    widget.onGoHome?.call();
+
     Future.delayed(const Duration(seconds: 3), () {
       if (mounted) setState(() => _pinCreated = false);
     });
@@ -638,18 +670,72 @@ class _MatchingTabState extends State<MatchingTab>
   Widget _label(String text) =>
       Text(text, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.secondary));
 
-  // 출발지/목적지 입력 필드 공통 스타일
-  Widget _textField(TextEditingController ctrl, String hint) => TextField(
-    controller: ctrl,
-    decoration: InputDecoration(
-      hintText: hint, hintStyle: const TextStyle(fontSize: 13, color: AppColors.gray),
-      filled: true, fillColor: Colors.white,
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.border)),
-      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.border)),
-      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.primary, width: 1.5)),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-    ),
-  );
+  // 출발지/목적지 검색 화면 열기
+  Future<void> _openLocationSearch(bool isDeparture) async {
+    final result = await Navigator.push<Map<String, dynamic>>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => LocationSearchScreen(
+          title: isDeparture ? '출발지' : '목적지',
+        ),
+      ),
+    );
+
+    if (result != null) {
+      setState(() {
+        if (isDeparture) {
+          _deptCtrl.text = result['name'] as String;
+          _deptLat = result['lat'] as double;
+          _deptLng = result['lng'] as double;
+        } else {
+          _destCtrl.text = result['name'] as String;
+          _destLat = result['lat'] as double;
+          _destLng = result['lng'] as double;
+        }
+      });
+    }
+  }
+
+  // 장소 검색용 텍스트 필드
+  Widget _locationTextField({
+    required TextEditingController controller,
+    required String hint,
+    required bool isDeparture,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border.all(color: AppColors.border),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              isDeparture ? Icons.location_on : Icons.location_on_outlined,
+              color: controller.text.isNotEmpty ? AppColors.primary : AppColors.gray,
+              size: 20,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                controller.text.isNotEmpty ? controller.text : hint,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: controller.text.isNotEmpty ? AppColors.secondary : AppColors.gray,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const Icon(Icons.chevron_right, color: AppColors.gray, size: 20),
+          ],
+        ),
+      ),
+    );
+  }
 
   // 뱃지 스타일
   Widget _tag(String text, {Color color = AppColors.primary, Color bg = AppColors.primaryLight}) =>
@@ -659,8 +745,6 @@ class _MatchingTabState extends State<MatchingTab>
         child: Text(text, style: TextStyle(fontSize: 10, color: color, fontWeight: FontWeight.w700)),
       );
 }
-
-
 
 // ============================================================
 // 동승 참여 화면 - 참여 버튼 클릭 시 실행
@@ -676,7 +760,7 @@ class RideJoinScreen extends StatefulWidget {
 // 참여 화면 상태 관리 및 UI 렌더링
 class _RideJoinScreenState extends State<RideJoinScreen> {
   String? _selectedSeat;
-  final List<String> _takenSeats = ['조수석', '왼쪽 창가']; // 더미(DB연결 필요)
+  final List<String> _takenSeats = ['조수석', '왼쪽 창가']; // 더미: 실제론 pin 데이터에서
 
   // 참여 화면 전체 UI 렌더링
   @override
@@ -815,7 +899,7 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
             const SizedBox(height: 10),
             _card(
               child: Padding(
-                padding: const EdgeInsets.all(12), // 전체적인 내부 여백을 조절
+                padding: const EdgeInsets.all(12), // 여기서 전체적인 내부 여백을 조절합니다.
                 child: Column(
                   children: [
                     // 1행 — 운전석 / 조수석
@@ -957,7 +1041,7 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
     ]),
   ]);
 
-  // 각 섹션 title 스타일
+  // 각 섹션 tilte 스타일
   Widget _sectionTitle(String text) =>
       Text(text, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: AppColors.secondary));
 

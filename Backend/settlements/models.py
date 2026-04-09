@@ -7,20 +7,12 @@ from trips.models import Trip
 
 
 class PaymentChannel(models.Model):
-    PROVIDER_CHOICES = [
-        ("KAKAOPAY", "KAKAOPAY"),
-        ("TOSS", "TOSS"),
-        ("BANK", "BANK"),
-    ]
-
     trip = models.OneToOneField(
         Trip,
         on_delete=models.CASCADE,
         related_name="payment_channel",
     )
-    provider = models.CharField(max_length=20, choices=PROVIDER_CHOICES)
-    payment_link = models.TextField()
-    account_holder_name = models.CharField(max_length=50, blank=True, null=True)
+    kakaopay_link = models.TextField(blank=True, null=True)
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
@@ -29,7 +21,7 @@ class PaymentChannel(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"{self.provider} channel for Trip {self.trip_id}"
+        return f"PaymentChannel for Trip {self.trip_id}"
 
 
 class Receipt(models.Model):
@@ -68,7 +60,7 @@ class Receipt(models.Model):
 
 class Settlement(models.Model):
     STATUS_CHOICES = [
-        ("REQUESTED", "REQUESTED"),
+        ("REQUEST", "REQUEST"),
         ("PAID_SELF", "PAID_SELF"),
         ("CONFIRMED", "CONFIRMED"),
         ("DISPUTED", "DISPUTED"),
@@ -80,6 +72,12 @@ class Settlement(models.Model):
         ("MANUAL", "MANUAL"),
         ("PROOF_IMAGE", "PROOF_IMAGE"),
     ]
+    
+    trip = models.ForeignKey(
+    Trip,
+    on_delete=models.CASCADE,
+    related_name="settlements",
+    )
 
     receipt = models.ForeignKey(
         Receipt,
@@ -99,7 +97,7 @@ class Settlement(models.Model):
     share_amount = models.PositiveIntegerField(validators=[MinValueValidator(0)])
     memo_code = models.CharField(max_length=20, blank=True, null=True)
 
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="REQUESTED")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="REQUEST")
     verification_method = models.CharField(
         max_length=20,
         choices=VERIFICATION_METHOD_CHOICES,
@@ -134,10 +132,6 @@ class Settlement(models.Model):
                 name="settlements_payer_payee_must_differ",
             ),
         ]
-
-    @property
-    def trip(self):
-        return self.receipt.trip
 
     def __str__(self):
         return f"Settlement {self.id} / receipt={self.receipt_id}"

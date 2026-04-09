@@ -50,7 +50,7 @@ class User(AbstractUser):
     # 이메일 로그인 제거, username 로그인 사용
     email = None
 
-    username = models.CharField(max_length=30, unique=True)
+    username = models.CharField(max_length=150, unique=True)
     nickname = models.CharField(max_length=20, unique=True)
     phone_number = models.CharField(
         max_length=11,
