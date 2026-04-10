@@ -11,7 +11,7 @@ __pycache__/
 .env.production.local
 
 # keep example env
-!.env.example
+!.env
 
 # OS / editor
 .DS_Store

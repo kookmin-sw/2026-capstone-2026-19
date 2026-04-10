@@ -33,6 +33,8 @@ class _MatchingTabState extends State<MatchingTab>
   TimeOfDay _selectedTime = TimeOfDay.now();  // 출발 시간 (초기값:현재 시각)
   bool _pinCreated = false;  // 핀 생성 시 성공 배너 표시 여부
   bool _isLoading = false;
+  List<home.RidePin> _serverPins = [];
+  bool _isFetching = false;
 
   // 출발지/목적지 좌표 저장
   double? _deptLat;
@@ -48,6 +50,7 @@ class _MatchingTabState extends State<MatchingTab>
   void initState() { // 트리에 위젯 첫 삽입 시 초기 설정 수행
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _fetchTrips();
   }
 
   @override
@@ -614,7 +617,39 @@ class _MatchingTabState extends State<MatchingTab>
     );
   }
 
+// --- 아래 코드를 통째로 추가 ---
+  Future<void> _fetchTrips() async {
+    if (!mounted) return;
+    setState(() => _isFetching = true);
 
+    // TODO: 실제 앱에서는 로그인 토큰을 사용하세요.
+    final List<dynamic> data = await TripService.getTrips(token: 'this-is-a-fake-test-token-12345');
+
+    if (mounted) {
+      setState(() {
+        _serverPins = data.map((item) => home.RidePin(
+          id: item['id'].toString(),
+          hostId: item['host_nickname'] ?? '익명',
+          dept: item['depart_name'],
+          dest: item['arrive_name'],
+          time: DateTime.parse(item['depart_time']).toLocal().toString().substring(11, 16),
+          max: item['capacity'],
+          cur: item['current_count'],
+          lat: double.parse(item['depart_lat'].toString()),
+          lng: double.parse(item['depart_lng'].toString()),
+        )).toList();
+        _isFetching = false;
+      });
+    }
+  }
+
+  // 기존 _filteredPins를 아래 내용으로 "교체" (찾아서 덮어쓰기)
+  List<home.RidePin> get _filteredPins {
+    if (_searchQuery.isEmpty) return _serverPins; // home.globalPins 대신 _serverPins 사용
+    return _serverPins.where((p) =>
+      p.dept.contains(_searchQuery) || p.dest.contains(_searchQuery)
+    ).toList();
+  }
   // ✅ 새로 교체할 코드 (서버 통신 버전)
   Future<void> _handleCreate() async {
     // 1. 입력값 검사

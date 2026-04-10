@@ -1,13 +1,13 @@
 from django.urls import path
-from .views import TripListCreateView, ParticipantCreateView, TripDetailView
+# 1. views.py에 정의된 정확한 클래스 이름(TripCreateListView)을 가져옵니다.
+from .views import TripCreateListView
 
 urlpatterns = [
-    # 여행 생성 및 목록 조회
-    path('trips/', TripListCreateView.as_view(), name='trip-list-create'),
 
-    # 여행 상세 조회/수정/삭제
-    path('trips/<int:pk>/', TripDetailView.as_view(), name='trip-detail'),
+    path('', TripCreateListView.as_view(), name='trip-list-create'),
 
-    # 나중에 따로 참여자 등록할 때 호출
-    path('participants/', ParticipantCreateView.as_view(), name='participant-create'),
+
+    # 기능을 구현한 후에 하나씩 주석을 풀고 views.py에서 import 하세요!
+    # path('<int:pk>/', TripDetailView.as_view(), name='trip-detail'),
+    # path('participants/', ParticipantCreateView.as_view(), name='participant-create'),
 ]
