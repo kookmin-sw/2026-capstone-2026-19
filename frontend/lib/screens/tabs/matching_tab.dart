@@ -32,6 +32,7 @@ class _MatchingTabState extends State<MatchingTab>
   String? _selectedSeat;  // 생성 시 대표자의 좌석 선택 상태 (선택 안 했을 경우 null)
   TimeOfDay _selectedTime = TimeOfDay.now();  // 출발 시간 (초기값:현재 시각)
   bool _pinCreated = false;  // 핀 생성 시 성공 배너 표시 여부
+  bool _isLoading = false;
 
   // 출발지/목적지 좌표 저장
   double? _deptLat;
@@ -533,18 +534,26 @@ class _MatchingTabState extends State<MatchingTab>
           ),
           const SizedBox(height: 24),
 
-          // 핀 생성 버튼
+          // 핀 생성 버튼 (이걸로 교체!)
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
               style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary, foregroundColor: Colors.white,
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                 elevation: 0,
               ),
-              onPressed: _handleCreate,
-              child: const Text('📍 핀 생성하기', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+              // 로딩 중일 때는 클릭이 안 되게(null) 만들고, 아니면 생성 함수 실행
+              onPressed: _isLoading ? null : _handleCreate,
+              child: _isLoading
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                  )
+                : const Text('📍 핀 생성하기', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
             ),
           ),
           const SizedBox(height: 16),
@@ -605,64 +614,90 @@ class _MatchingTabState extends State<MatchingTab>
     );
   }
 
-  // 유효성 검사 및 처리 로직 메서드 (핀 생성 버튼 시 실행)
-  void _handleCreate() {
-    // 필수 입력값 검사 (출발지, 목적지)
+
+  // ✅ 새로 교체할 코드 (서버 통신 버전)
+  Future<void> _handleCreate() async {
+    // 1. 입력값 검사
     if (_deptCtrl.text.isEmpty || _destCtrl.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('출발지와 목적지를 입력해주세요.'),
-        backgroundColor: AppColors.red,
-      ));
+      _showSnackBar('출발지와 목적지를 입력해주세요.', AppColors.red);
+      return;
+    }
+    if (_deptLat == null || _destLat == null) {
+      _showSnackBar('검색을 통해 장소를 선택해주세요.', AppColors.red);
+      return;
+    }
+    if (_selectedSeat == null) {
+      _showSnackBar('본인의 좌석을 선택해주세요.', AppColors.red);
       return;
     }
 
-    // 위도/경도 검사
-    if (_deptLat == null || _deptLng == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('출발지를 검색을 통해 선택해주세요.'),
-        backgroundColor: AppColors.red,
-      ));
-      return;
-    }
-    if (_destLat == null || _destLng == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('목적지를 검색을 통해 선택해주세요.'),
-        backgroundColor: AppColors.red,
-      ));
-      return;
-    }
+    // 2. 로딩 상태 시작
+    setState(() => _isLoading = true);
 
-    // 실제 핀 생성 및 globalPins에 추가
-    final newPin = home.RidePin(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      hostId: 'my_username',
-      dept: _deptCtrl.text,
-      dest: _destCtrl.text,
-      time: '${_selectedTime.hour.toString().padLeft(2, '0')}:${_selectedTime.minute.toString().padLeft(2, '0')}',
-      max: _maxPeople,
-      cur: 1,
-      lat: _deptLat!,
-      lng: _deptLng!,
+    // 3. 시간 데이터 생성
+    final now = DateTime.now();
+    final departDateTime = DateTime(
+      now.year, now.month, now.day,
+      _selectedTime.hour, _selectedTime.minute,
     );
 
-    // globalPins에 추가
-    home.globalPins.add(newPin);
+    // 4. API 서버에 핀 생성 요청
+    final result = await TripService.createTrip(
+      token: 'this-is-a-fake-test-token-12345', // 👈 나중에 실제 토큰으로 교체
+      deptName: _deptCtrl.text,
+      deptLat: _deptLat!,
+      deptLng: _deptLng!,
+      destName: _destCtrl.text,
+      destLat: _destLat!,
+      destLng: _destLng!,
+      departTime: departDateTime,
+      capacity: _maxPeople,
+      seatPosition: _selectedSeat!,
+      kakaoLink: _kakaoCtrl.text,
+    );
 
-    print('핀 생성 및 추가: ${newPin.dept}(${newPin.lat}, ${newPin.lng}) -> ${newPin.dest}');
+    if (!mounted) return;
+    setState(() => _isLoading = false); // 로딩 종료
 
-    setState(() => _pinCreated = true); // 성공 배너 표시
+    // 5. 결과에 따른 처리
+    if (result['success']) {
+      // 로컬 리스트에 추가하여 즉시 반영
+      home.globalPins.add(home.RidePin(
+        id: result['trip_id'].toString(),
+        hostId: 'my_username',
+        dept: _deptCtrl.text,
+        dest: _destCtrl.text,
+        time: '${_selectedTime.hour.toString().padLeft(2, '0')}:${_selectedTime.minute.toString().padLeft(2, '0')}',
+        max: _maxPeople,
+        cur: 1,
+        lat: _deptLat!,
+        lng: _deptLng!,
+      ));
 
-    // 폼 입력값 초기화 (생성한 핀 제출 후 비우기)
-    _deptCtrl.clear(); _destCtrl.clear(); _kakaoCtrl.clear();
-    _deptLat = null; _deptLng = null;
-    _destLat = null; _destLng = null;
+      setState(() => _pinCreated = true);
 
-    // 홈 화면으로 자동 이동
-    widget.onGoHome?.call();
+      // 입력창 초기화
+      _deptCtrl.clear(); _destCtrl.clear(); _kakaoCtrl.clear();
+      _deptLat = null; _destLat = null;
 
-    Future.delayed(const Duration(seconds: 3), () {
-      if (mounted) setState(() => _pinCreated = false);
-    });
+      // 홈 화면으로 이동
+      widget.onGoHome?.call();
+
+      Future.delayed(const Duration(seconds: 3), () {
+        if (mounted) setState(() => _pinCreated = false);
+      });
+    } else {
+      // 실패 시 에러 메시지
+      _showSnackBar(result['message'], AppColors.red);
+    }
+  }
+
+  // 메시지 표시를 위한 작은 도구 (에러 알림용)
+  void _showSnackBar(String message, Color color) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(message),
+      backgroundColor: color,
+    ));
   }
 
   // 헬퍼 위젯 (재사용 위젯)

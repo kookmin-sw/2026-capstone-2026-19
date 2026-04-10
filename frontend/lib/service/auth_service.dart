@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class AuthService {
-  // ⚠️ 중요: 에뮬레이터에서는 10.0.2.2, 실제 폰에서는 노트북의 IP주소(예: 192.168.0.x)를 적어야 합니다.
   static const String baseUrl = 'http://10.0.2.2:8000/api/accounts';
 
   // 1. 인증번호 전송 API
@@ -13,14 +12,9 @@ class AuthService {
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'phone': phone}),
       );
-
-      if (response.statusCode == 200) {
-        return {'success': true};
-      } else {
-        return {'success': false, 'message': '인증번호 전송에 실패했습니다.'};
-      }
+      return {'success': response.statusCode == 200};
     } catch (e) {
-      return {'success': false, 'message': '서버 연결 오류가 발생했습니다.'};
+      return {'success': false, 'message': '서버 연결 오류'};
     }
   }
 
@@ -32,24 +26,20 @@ class AuthService {
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'phone': phone, 'code': code}),
       );
-
-      if (response.statusCode == 200) {
-        return {'success': true};
-      } else {
-        final data = jsonDecode(response.body);
-        return {'success': false, 'message': data['message'] ?? '인증번호가 틀립니다.'};
-      }
+      if (response.statusCode == 200) return {'success': true};
+      final data = jsonDecode(response.body);
+      return {'success': false, 'message': data['message'] ?? '인증번호가 틀립니다.'};
     } catch (e) {
-      return {'success': false, 'message': '서버 연결 오류가 발생했습니다.'};
+      return {'success': false, 'message': '서버 연결 오류'};
     }
   }
 
-  // 3. 회원가입 완료 API
+  // 3. 회원가입 완료 API (개발자님 매핑 적용)
   static Future<Map<String, dynamic>> signup({
-    required String name,
+    required String name,     // 실명
+    required String username, // 아이디 (UI에서의 ID)
     required String gender,
     required String phone,
-    required String username,
     required String password,
   }) async {
     try {
@@ -57,11 +47,11 @@ class AuthService {
         Uri.parse('$baseUrl/signup/'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
-          'username': username,
+          'username': name,      // ⚠️ 이름(실명)을 username 필드로 보냄
+          'nickname': username,  // ⚠️ 아이디를 nickname 필드로 보냄
           'password': password,
-          'nickname': name, // 💡 DB 모델의 nickname 필드에 우선 실명을 넣도록 처리했습니다.
           'phone_number': phone,
-          'gender': gender == '남' ? 'M' : 'F', // DB 모델의 'M', 'F' 규격에 맞춤
+          'gender': gender == '남' ? 'M' : 'F',
         }),
       );
 
@@ -69,35 +59,38 @@ class AuthService {
         return {'success': true};
       } else {
         final data = jsonDecode(utf8.decode(response.bodyBytes));
-        return {'success': false, 'message': data['message'] ?? '회원가입에 실패했습니다.'};
+        return {'success': false, 'message': data['message'] ?? '회원가입 실패'};
       }
     } catch (e) {
-      return {'success': false, 'message': '서버 연결 오류가 발생했습니다.'};
+      return {'success': false, 'message': '서버 연결 오류'};
     }
   }
-}
-// 로그인
-static Future<Map<String, dynamic>> login({required String username, required String password}) async {
+
+  // 4. 로그인 API (회원가입 매핑에 맞춤)
+  static Future<Map<String, dynamic>> login({
+  required String nickname,
+  required String password,
+}) async {
   try {
     final response = await http.post(
       Uri.parse('$baseUrl/login/'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'username': username, 'password': password}),
+      // [중요] 서버 DB의 nickname 필드(우리가 아이디를 넣은 곳)와 대조하도록 키값 설정
+      body: jsonEncode({
+        'nickname': nickname,
+        'password': password,
+      }),
     );
 
-    // 1. 서버가 보낸 택배 상자 열기 (JSON 디코딩)
-    // utf8.decode를 써야 닉네임(한글)이 깨지지 않고 잘 들어옵니다.
     final Map<String, dynamic> data = jsonDecode(utf8.decode(response.bodyBytes));
 
     if (response.statusCode == 200) {
-      // 2. 성공 시 서버가 준 데이터(토큰, 닉네임 등)를 맵에 담아 리턴
       return {
         'success': true,
-        'token': data['token'],      // 가짜 토큰이라도 일단 받아둡니다.
-        'nickname': data['nickname'], // 유저 환영 인사용
+        'token': data['token'],
+        'nickname': data['nickname'], // 로그인 후 상단에 뜰 '아이디'
       };
     } else {
-      // 3. 실패 시 서버가 알려준 에러 메시지 사용
       return {
         'success': false,
         'message': data['message'] ?? '아이디 또는 비밀번호가 틀립니다.'
@@ -105,5 +98,7 @@ static Future<Map<String, dynamic>> login({required String username, required St
     }
   } catch (e) {
     return {'success': false, 'message': '서버 연결 실패: $e'};
+  }
+}
   }
 }
