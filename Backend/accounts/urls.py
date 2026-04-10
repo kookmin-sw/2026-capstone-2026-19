@@ -5,7 +5,9 @@ from .views import SignupView
 
 urlpatterns = [
     # 회원가입
-    path("signup/", SignupView.as_view(), name="signup"),
+    path('send-code/', SendCodeView.as_view(), name='send_code'),
+    path('verify-code/', VerifyCodeView.as_view(), name='verify_code'),
+    path('signup/', SignupView.as_view(), name='signup'),
     # 로그인
     path("login/", LoginView.as_view(), name="login"),
     # 로그아웃
