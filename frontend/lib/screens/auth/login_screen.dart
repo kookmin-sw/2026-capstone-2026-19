@@ -39,32 +39,25 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isLoading = true);
+    // api 호출
+    final result = await AuthService.login(
+     username: _idCtrl.text.trim(),
+     password: _pwCtrl.text.trim(),
+  );
 
 
-    // TODO: 실제 Firebase Auth 연동 시 아래 코드로 교체
-    // try {
-    //   await FirebaseAuth.instance.signInWithEmailAndPassword(
-    //     email: _idCtrl.text.trim(),
-    //     password: _pwCtrl.text.trim(),
-    //   );
-    //   Navigator.pushReplacementNamed(context, AppRoutes.main);
-    // } on FirebaseAuthException catch (e) {
-    //   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message ?? '로그인 실패')));
-    // } finally {
-    //   setState(() => _isLoading = false);
-    // }
-
-
-    // 임시: 1.5초 후 메인 화면으로 이동 (더미 로그인)
-    await Future.delayed(const Duration(milliseconds: 1500));
-    if (!mounted) return;
     setState(() => _isLoading = false);
 
-    // pushReplacementNamed: 로그인 화면을 스택에서 제거하고 메인으로 이동
-    // (뒤로가기로 로그인 화면으로 돌아올 수 없게)
+    if (result['success']) {
+    // 로그인 성공 시 메인으로
     Navigator.pushReplacementNamed(context, AppRoutes.main);
+  } else {
+    // 로그인 실패 시 에러 메시지 띄우기
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(result['message']), backgroundColor: AppColors.red),
+    );
   }
-
+}
   @override
   Widget build(BuildContext context) {
     return Scaffold(

@@ -76,3 +76,34 @@ class AuthService {
     }
   }
 }
+// 로그인
+static Future<Map<String, dynamic>> login({required String username, required String password}) async {
+  try {
+    final response = await http.post(
+      Uri.parse('$baseUrl/login/'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'username': username, 'password': password}),
+    );
+
+    // 1. 서버가 보낸 택배 상자 열기 (JSON 디코딩)
+    // utf8.decode를 써야 닉네임(한글)이 깨지지 않고 잘 들어옵니다.
+    final Map<String, dynamic> data = jsonDecode(utf8.decode(response.bodyBytes));
+
+    if (response.statusCode == 200) {
+      // 2. 성공 시 서버가 준 데이터(토큰, 닉네임 등)를 맵에 담아 리턴
+      return {
+        'success': true,
+        'token': data['token'],      // 가짜 토큰이라도 일단 받아둡니다.
+        'nickname': data['nickname'], // 유저 환영 인사용
+      };
+    } else {
+      // 3. 실패 시 서버가 알려준 에러 메시지 사용
+      return {
+        'success': false,
+        'message': data['message'] ?? '아이디 또는 비밀번호가 틀립니다.'
+      };
+    }
+  } catch (e) {
+    return {'success': false, 'message': '서버 연결 실패: $e'};
+  }
+}

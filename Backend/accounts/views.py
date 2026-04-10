@@ -3,6 +3,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from .models import User
 
+
 class SignupView(APIView):
     def post(self, request):
         data = request.data
@@ -16,7 +17,7 @@ class SignupView(APIView):
             user = User.objects.create_user(
                 username=data['username'],
                 password=data['password'],
-                nickname=data['nickname'], # 플러터에서 넘겨준 name이 여기로 들어옴
+                nickname=data['nickname'],  # 플러터에서 넘겨준 name이 여기로 들어옴
                 phone_number=data['phone_number'],
                 gender=data['gender']
             )
@@ -26,6 +27,7 @@ class SignupView(APIView):
         except Exception as e:
             return Response({'success': False, 'message': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
+
 # 인증번호 전송/확인은 지금은 간단히 성공 메시지만 보내도록 틀만 잡아두세요.
 class SendCodeView(APIView):
     def post(self, request):
@@ -33,7 +35,29 @@ class SendCodeView(APIView):
         print(f"인증번호 발송 요청: {request.data.get('phone')}")
         return Response({'success': True})
 
+
 class VerifyCodeView(APIView):
     def post(self, request):
         # 실제로는 DB에 저장된 번호와 비교합니다.
         return Response({'success': True})
+
+# 로그인
+class LoginView(APIView):
+    def post(self, request):
+        username = request.data.get('username')
+        password = request.data.get('password')
+
+        # 실제 인증은 장고가 해주지만, 토큰은 가짜로!
+        user = authenticate(username=username, password=password)
+
+        if user:
+            return Response({
+                'success': True,
+                'token': 'this-is-a-fake-test-token-12345',  # 👈 일단 가짜 토큰 전송!
+                'nickname': user.nickname
+            })
+        else:
+            return Response({
+                'success': False,
+                'message': '아이디 또는 비밀번호가 틀려요!'
+            }, status=status.HTTP_401_UNAUTHORIZED)
