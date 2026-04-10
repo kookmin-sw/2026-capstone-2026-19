@@ -1,45 +1,59 @@
-from rest_framework import status
-from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIView
+from rest_framework.response import Response
+from rest_framework import status, permissions
+from django.db import transaction
 from .models import Trip, TripParticipant
-from .serializers import TripSerializer, TripParticipantSerializer
-
-# 1. 여행(Trip) 관련 View
-class TripListCreateView(ListCreateAPIView):
-    """
-    GET: 전체 여행 목록 조회
-    POST: 새로운 여행 생성 (시리얼라이저 내부 로직으로 리더가 자동 등록됨)
-    """
-    queryset = Trip.objects.all().order_by('-created_at')
-    serializer_class = TripSerializer
-
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        if serializer.is_valid():
-            # serializer.save() 호출 시 시리얼라이저의 create() 메서드가 실행됨
-            trip = serializer.save()
-            # 저장된 데이터를 다시 직렬화해서 Flutter로 응답
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+from .serializers import TripSerializer
 
 
-# 2. 참여자(Participant) 관련 View
-class ParticipantCreateView(APIView):
-    """
-    POST: 특정 여행에 새로운 참여자 등록 (나중에 따로 올 때 호출)
-    """
+class TripCreateListView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    # 좌석 이름 매핑 사전 (Flutter -> Django Model)
+    SEAT_MAP = {
+        '조수석': TripParticipant.SeatChoices.FRONT_PASSENGER,
+        '왼쪽 창가': TripParticipant.SeatChoices.REAR_LEFT,
+        '가운데': TripParticipant.SeatChoices.REAR_MIDDLE,
+        '오른쪽 창가': TripParticipant.SeatChoices.REAR_RIGHT,
+    }
+
+    def get(self, request):
+        # 열려있는 핀 목록만 조회
+        trips = Trip.objects.filter(status=Trip.StatusChoices.OPEN).order_by('-created_at')
+        serializer = TripSerializer(trips, many=True)
+        return Response(serializer.data)
+
     def post(self, request):
-        serializer = TripParticipantSerializer(data=request.data)
-        if serializer.is_valid():
-            # validate()에서 정원 초과/중복 여부를 체크한 뒤 저장
-            participant = serializer.save()
-            # "OOO님이 참여했습니다"와 같은 응답을 Flutter로 보냄
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        data = request.data
+        flutter_seat = data.get('seat_position')
 
+        # 1. 좌석 매핑 확인
+        django_seat = self.SEAT_MAP.get(flutter_seat)
+        if not django_seat:
+            return Response({'message': '올바른 좌석을 선택해주세요.'}, status=status.HTTP_400_BAD_REQUEST)
 
-# 3. 여행 상세 및 수정/삭제 View (선택 사항)
-class TripDetailView(RetrieveUpdateDestroyAPIView):
-    queryset = Trip.objects.all()
-    serializer_class = TripSerializer
+        # 2. 트랜잭션 처리 (Trip 생성과 Participant 생성을 한 번에)
+        try:
+            with transaction.atomic():
+                # Trip 생성 (creator와 leader를 현재 유저로 설정)
+                serializer = TripSerializer(data=data)
+                if serializer.is_valid():
+                    trip = serializer.save(
+                        creator_user=request.user,
+                        leader_user=request.user
+                    )
+
+                    # 호스트를 참여자로 등록
+                    TripParticipant.objects.create(
+                        trip=trip,
+                        user=request.user,
+                        role=TripParticipant.RoleChoices.LEADER,
+                        seat_position=django_seat,
+                        status=TripParticipant.StatusChoices.JOINED
+                    )
+
+                    return Response(serializer.data, status=status.HTTP_201_CREATED)
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        except Exception as e:
+            return Response({'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
