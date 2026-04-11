@@ -107,10 +107,10 @@ class _SignupScreenState extends State<SignupScreen> {
 
     // --- API 호출 시작 ---
     final result = await AuthService.signup(
-      username: _nameCtrl.text.trim(),
+      name: _nameCtrl.text.trim(),
+      username: _idCtrl.text.trim(),
       gender: _selectedGender!,
       phone: _phoneCtrl.text.trim(),
-      nickname: _idCtrl.text.trim(),
       password: _pwCtrl.text.trim(),
     );
 
