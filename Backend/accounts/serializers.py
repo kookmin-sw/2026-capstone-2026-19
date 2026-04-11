@@ -1,3 +1,9 @@
+from rest_framework import serializers
+from .models import User, WithdrawalBlock
+
+# 1. 번호 중복 및 차단 여부 체크용 Serializer
+class PhoneCheckSerializer(serializers.Serializer):
+    phone_number = serializers.CharField(max_length=11)
 
 # 2. 회원가입용 Serializer
 class SignUpSerializer(serializers.ModelSerializer):
