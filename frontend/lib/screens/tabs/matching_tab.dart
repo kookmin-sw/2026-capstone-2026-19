@@ -6,6 +6,7 @@ import 'package:flutter/cupertino.dart';
 import '../../utils/colors.dart';
 import '../location_search_screen.dart';
 import 'home_tab.dart' as home;
+import '../../service/trip_service.dart';
 
 // 매칭 탭 전체 레이아웃 (내부 상태 변경 시 화면 리빌드)
 class MatchingTab extends StatefulWidget {
@@ -61,13 +62,6 @@ class _MatchingTabState extends State<MatchingTab>
     super.dispose();
   }
 
-  // 현재 검색어에 따라 핀 목록 필터링
-  List<home.RidePin> get _filteredPins {
-    if (_searchQuery.isEmpty) return home.globalPins;
-    return home.globalPins.where((p) =>
-    p.dept.contains(_searchQuery) || p.dest.contains(_searchQuery)
-    ).toList();
-  }
 
   // 매칭 탭 기본 화면 구조 위젯 트리
   @override
@@ -643,13 +637,7 @@ class _MatchingTabState extends State<MatchingTab>
     }
   }
 
-  // 기존 _filteredPins를 아래 내용으로 "교체" (찾아서 덮어쓰기)
-  List<home.RidePin> get _filteredPins {
-    if (_searchQuery.isEmpty) return _serverPins; // home.globalPins 대신 _serverPins 사용
-    return _serverPins.where((p) =>
-      p.dept.contains(_searchQuery) || p.dest.contains(_searchQuery)
-    ).toList();
-  }
+
   // ✅ 새로 교체할 코드 (서버 통신 버전)
   Future<void> _handleCreate() async {
     // 1. 입력값 검사
