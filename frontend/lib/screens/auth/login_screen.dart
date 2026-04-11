@@ -5,8 +5,7 @@
 import 'package:flutter/material.dart';
 import '../../utils/colors.dart';
 import '../../utils/routes.dart';
-import '../../service/auth_service.dart';
-
+import 'package:taximate/service/auth_service.dart';
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
   @override
@@ -42,7 +41,7 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isLoading = true);
     // api 호출
     final result = await AuthService.login(
-     nickname: _idCtrl.text.trim(),
+     username: _idCtrl.text.trim(),
      password: _pwCtrl.text.trim(),
   );
 

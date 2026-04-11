@@ -47,8 +47,8 @@ class AuthService {
         Uri.parse('$baseUrl/signup/'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
-          'username': name,
-          'nickname': username,
+          'username': username,
+          'user_real_name': name,
           'password': password,
           'phone_number': phone,
           'gender': gender == '남' ? 'M' : 'F',
@@ -68,7 +68,7 @@ class AuthService {
 
   // 4. 로그인 API
   static Future<Map<String, dynamic>> login({
-    required String nickname,
+    required String username,
     required String password,
   }) async {
     try {
@@ -76,7 +76,7 @@ class AuthService {
         Uri.parse('$baseUrl/login/'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
-          'nickname': nickname,
+          'username': username,
           'password': password,
         }),
       );
@@ -87,7 +87,7 @@ class AuthService {
         return {
           'success': true,
           'token': data['token'],
-          'nickname': data['nickname'],
+          'username': data['username'],
         };
       } else {
         return {
