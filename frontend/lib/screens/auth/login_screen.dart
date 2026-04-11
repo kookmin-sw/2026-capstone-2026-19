@@ -43,7 +43,7 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isLoading = true);
     // api 호출
     final result = await AuthService.login(
-     nickname: _idCtrl.text.trim(),
+     username: _idCtrl.text.trim(),
      password: _pwCtrl.text.trim(),
   );
 
