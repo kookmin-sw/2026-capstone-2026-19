@@ -34,10 +34,10 @@ class AuthService {
     }
   }
 
-  // 3. 회원가입 완료 API (개발자님 매핑 적용)
+  // 3. 회원가입 완료 API
   static Future<Map<String, dynamic>> signup({
-    required String name,     // 실명
-    required String username, // 아이디 (UI에서의 ID)
+    required String name,
+    required String username, // UI에서 'nickname'으로 보내던 값을 여기서 'username'으로 받음
     required String gender,
     required String phone,
     required String password,
@@ -47,8 +47,8 @@ class AuthService {
         Uri.parse('$baseUrl/signup/'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
-          'username': name,      // ⚠️ 이름(실명)을 username 필드로 보냄
-          'nickname': username,  // ⚠️ 아이디를 nickname 필드로 보냄
+          'username': name,
+          'nickname': username,
           'password': password,
           'phone_number': phone,
           'gender': gender == '남' ? 'M' : 'F',
@@ -66,39 +66,47 @@ class AuthService {
     }
   }
 
-  // 4. 로그인 API (회원가입 매핑에 맞춤)
+  // 4. 로그인 API
   static Future<Map<String, dynamic>> login({
-  required String nickname,
-  required String password,
-}) async {
-  try {
-    final response = await http.post(
-      Uri.parse('$baseUrl/login/'),
-      headers: {'Content-Type': 'application/json'},
-      // [중요] 서버 DB의 nickname 필드(우리가 아이디를 넣은 곳)와 대조하도록 키값 설정
-      body: jsonEncode({
-        'nickname': nickname,
-        'password': password,
-      }),
-    );
+    required String nickname,
+    required String password,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/login/'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'nickname': nickname,
+          'password': password,
+        }),
+      );
 
-    final Map<String, dynamic> data = jsonDecode(utf8.decode(response.bodyBytes));
+      final Map<String, dynamic> data = jsonDecode(utf8.decode(response.bodyBytes));
 
-    if (response.statusCode == 200) {
-      return {
-        'success': true,
-        'token': data['token'],
-        'nickname': data['nickname'], // 로그인 후 상단에 뜰 '아이디'
-      };
-    } else {
-      return {
-        'success': false,
-        'message': data['message'] ?? '아이디 또는 비밀번호가 틀립니다.'
-      };
+      if (response.statusCode == 200) {
+        return {
+          'success': true,
+          'token': data['token'],
+          'nickname': data['nickname'],
+        };
+      } else {
+        return {
+          'success': false,
+          'message': data['message'] ?? '아이디 또는 비밀번호가 틀립니다.'
+        };
+      }
+    } catch (e) {
+      return {'success': false, 'message': '서버 연결 실패: $e'};
     }
-  } catch (e) {
-    return {'success': false, 'message': '서버 연결 실패: $e'};
   }
-}
-  }
+
+  // --- 아래는 MyPage 등에서 에러가 나지 않도록 추가한 껍데기 함수들입니다 ---
+
+  static Future<void> logout() async {}
+  static Future<void> updateProfile({String? profileImgUrl}) async {}
+  static Future<void> withdraw({required String reason}) async {}
+  static Future<List<dynamic>> getTripHistory() async => [];
+  static Future<List<dynamic>> getTrustScoreLogs() async => [];
+  static Future<List<dynamic>> getRecentCompanions() async => [];
+  static Future<void> reportUser({required String targetId, required String reason}) async {}
 }
