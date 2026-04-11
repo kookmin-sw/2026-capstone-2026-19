@@ -19,6 +19,7 @@ class MatchingTab extends StatefulWidget {
 // 매칭 탭의 실제 로직 & UI 담당 클래스
 class _MatchingTabState extends State<MatchingTab>
     with SingleTickerProviderStateMixin { // 탭바 전환 시 애니메이션 동작
+    List<dynamic> _filteredPins = [];
 
   late TabController _tabController; // 검색, 생성 탭 전환 제어 컨트롤러
   final TextEditingController _searchCtrl = TextEditingController(); // 검색창 입력 제어

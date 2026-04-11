@@ -366,7 +366,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     try {
       final history = await AuthService.getTripHistory();
       setState(() {
-        _histories = history;
+        _histories = List<Map<String, dynamic>>.from(history);
         _isLoading = false;
       });
     } catch (e) {
@@ -785,7 +785,7 @@ class _MannerScreenState extends State<_MannerScreen> {
     try {
       final logs = await AuthService.getTrustScoreLogs();
       setState(() {
-        _logs = logs;
+        _logs = List<Map<String, dynamic>>.from(logs);
         _isLoading = false;
       });
     } catch (e) {
@@ -1051,7 +1051,7 @@ class _ReportScreenState extends State<_ReportScreen> {
   // 신고 제출
   Future<void> _submitReport(String reportedUserId, String tripId) async {
     await AuthService.reportUser(
-      reportedUserId: reportedUserId,
+      targetId: reportedUserId,
       tripId: tripId,
       reason: _selectedReason,
       detail: _detailController.text,
