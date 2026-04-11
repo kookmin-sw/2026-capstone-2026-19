@@ -5,6 +5,7 @@
 import 'package:flutter/material.dart';
 import '../../utils/colors.dart';
 import '../../utils/routes.dart';
+import '../../service/auth_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
