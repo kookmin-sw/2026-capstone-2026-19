@@ -49,8 +49,11 @@ class User(AbstractUser):
 
     # 이메일 로그인 제거, username 로그인 사용
     email = None
-
+    first_name = None
+    last_name = None
+    
     username = models.CharField(max_length=150, unique=True)
+    user_real_name = models.CharField(max_length=50)
     nickname = models.CharField(max_length=20, unique=True)
     phone_number = models.CharField(
         max_length=11,
@@ -84,7 +87,7 @@ class User(AbstractUser):
     updated_at = models.DateTimeField(auto_now=True)
 
     USERNAME_FIELD = "username"
-    REQUIRED_FIELDS = ["nickname", "phone_number", "gender"]
+    REQUIRED_FIELDS = ["nickname", "user_real_name", "phone_number", "gender"]
 
     objects = UserManager()
 
