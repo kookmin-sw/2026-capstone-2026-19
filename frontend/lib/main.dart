@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:kakao_map_plugin/kakao_map_plugin.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'screens/auth/splash_screen.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/signup_screen.dart';
@@ -20,10 +22,16 @@ void main() async {
   // Flutter 엔진 초기화 (async main 사용 시 필수)
   WidgetsFlutterBinding.ensureInitialized();
 
+  // 환경 변수 로드
+  await dotenv.load(fileName: ".env");
+
+  // Firebase 초기화
+  await Firebase.initializeApp();
+
   // 카카오맵 SDK 초기화 (웹에서는 제외)
   if (!kIsWeb) {
     AuthRepository.initialize(
-      appKey: '2c89ba1eee07b01fbfb0d1ca3220eff2',
+      appKey: dotenv.env['KAKAO_APP_KEY'] ?? '',
       baseUrl: '',
     );
   }

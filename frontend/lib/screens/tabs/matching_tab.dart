@@ -685,31 +685,13 @@ class _MatchingTabState extends State<MatchingTab>
 
     // 5. 결과에 따른 처리
     if (result['success']) {
-      // 로컬 리스트에 추가하여 즉시 반영
-      home.globalPins.add(home.RidePin(
-        id: result['trip_id'].toString(),
-        hostId: 'my_username',
-        dept: _deptCtrl.text,
-        dest: _destCtrl.text,
-        time: '${_selectedTime.hour.toString().padLeft(2, '0')}:${_selectedTime.minute.toString().padLeft(2, '0')}',
-        max: _maxPeople,
-        cur: 1,
-        lat: _deptLat!,
-        lng: _deptLng!,
-      ));
-
-      setState(() => _pinCreated = true);
-
       // 입력창 초기화
       _deptCtrl.clear(); _destCtrl.clear(); _kakaoCtrl.clear();
-      _deptLat = null; _destLat = null;
+      _deptLat = null; _deptLng = null; _destLat = null; _destLng = null;
+      _selectedSeat = null;
 
       // 홈 화면으로 이동
       widget.onGoHome?.call();
-
-      Future.delayed(const Duration(seconds: 3), () {
-        if (mounted) setState(() => _pinCreated = false);
-      });
     } else {
       // 실패 시 에러 메시지
       _showSnackBar(result['message'], AppColors.red);

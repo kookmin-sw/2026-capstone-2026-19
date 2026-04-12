@@ -4,6 +4,7 @@
 // ============================================================
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../utils/colors.dart';
 import '../../utils/routes.dart';
 import 'package:taximate/service/auth_service.dart';
@@ -33,6 +34,9 @@ class _SignupScreenState extends State<SignupScreen> {
   bool _codeSent      = false;  // 인증번호 전송 여부
   bool _phoneVerified = false;  // 본인인증 완료 여부
   int  _countdown     = 0;      // 인증번호 유효 시간 카운트다운
+  String? _verificationId;      // Firebase 인증 ID
+  bool _isSendingCode = false;  // 인증번호 발송 중
+  bool _isVerifying   = false;  // 인증번호 확인 중
 
   @override
   void dispose() {
@@ -41,52 +45,116 @@ class _SignupScreenState extends State<SignupScreen> {
     super.dispose();
   }
 
-  // -- 인증번호 전송 -------------------------------------------
-  // 실제 구현 시 Firebase Phone Auth 또는 SMS API 연동
+  // -- 인증번호 전송 (Firebase Phone Auth) ----------------------
   Future<void> _sendVerificationCode() async {
     if (_phoneCtrl.text.length < 10) {
       _showSnackBar('올바른 전화번호를 입력해주세요.', isError: true);
       return;
     }
 
-    // --- API 호출 시작 ---
-    final result = await AuthService.sendVerificationCode(phone: _phoneCtrl.text);
+    setState(() => _isSendingCode = true);
 
-    if (result['success'] == true) {
-      setState(() { _codeSent = true; _countdown = 180; }); // 3분 카운트다운
-      _showSnackBar('인증번호가 전송되었습니다.');
+    final FirebaseAuth auth = FirebaseAuth.instance;
+    String phoneNumber = _phoneCtrl.text.trim();
 
-      // 카운트다운 타이머
-      Future.doWhile(() async {
-        await Future.delayed(const Duration(seconds: 1));
-        if (!mounted) return false;
-        setState(() => _countdown--);
-        return _countdown > 0;
-      });
-    } else {
-      _showSnackBar('번호 전송에 실패했습니다. 다시 시도해주세요.', isError: true);
+    // 국가 코드 추가 (한국 기준)
+    if (!phoneNumber.startsWith('+')) {
+      phoneNumber = '+82${phoneNumber.substring(1)}';
     }
+
+    await auth.verifyPhoneNumber(
+      phoneNumber: phoneNumber,
+      timeout: const Duration(seconds: 120),
+      verificationCompleted: (PhoneAuthCredential credential) async {
+        // 자동 인증 완료 (일부 기기에서만)
+        await auth.signInWithCredential(credential);
+        setState(() {
+          _phoneVerified = true;
+          _codeSent = false;
+          _isSendingCode = false;
+        });
+        _showSnackBar('본인인증이 자동 완료되었습니다!');
+      },
+      verificationFailed: (FirebaseAuthException e) {
+        setState(() => _isSendingCode = false);
+        _showSnackBar('인증 실패: ${e.message}', isError: true);
+      },
+      codeSent: (String verificationId, int? resendToken) {
+        setState(() {
+          _verificationId = verificationId;
+          _codeSent = true;
+          _countdown = 180; // 3분 카운트다운
+          _isSendingCode = false;
+        });
+        _showSnackBar('인증번호가 발송되었습니다.');
+
+        // 카운트다운 타이머
+        Future.doWhile(() async {
+          await Future.delayed(const Duration(seconds: 1));
+          if (!mounted) return false;
+          setState(() => _countdown--);
+          return _countdown > 0;
+        });
+      },
+      codeAutoRetrievalTimeout: (String verificationId) {
+        _verificationId = verificationId;
+      },
+    );
   }
 
-  // -- 인증번호 확인 ---------------------------------------------
-  // -- 인증번호 확인 (수정본) ---------------------------------------------
+  // -- 인증번호 확인 (Firebase Phone Auth) ---------------------
   Future<void> _verifyCode() async {
-    // 1. 입력값 체크: 아무것도 입력 안 했을 때 서버 요청을 막아줍니다.
     if (_codeCtrl.text.trim().isEmpty) {
       _showSnackBar('인증번호를 입력해주세요.', isError: true);
       return;
     }
 
-    // 2. 서버 검증 요청: 비동기로 서버의 응답을 기다립니다.
-    final result = await AuthService.verifyCode(phone: _phoneCtrl.text, code: _codeCtrl.text.trim());
+    if (_verificationId == null) {
+      _showSnackBar('인증번호를 먼저 요청해주세요.', isError: true);
+      return;
+    }
 
-    if (result['success'] == true) {
-      // 3. 성공 시: UI 상태를 '인증 완료'로 변경
-      setState(() => _phoneVerified = true);
-      _showSnackBar('본인인증이 완료되었습니다! ');
-    } else {
-      // 4. 실패 시: 에러 메시지 출력
-      _showSnackBar('인증번호가 올바르지 않거나 만료되었습니다.', isError: true);
+    setState(() => _isVerifying = true);
+
+    try {
+      final FirebaseAuth auth = FirebaseAuth.instance;
+
+      // PhoneAuthCredential 생성
+      PhoneAuthCredential credential = PhoneAuthProvider.credential(
+        verificationId: _verificationId!,
+        smsCode: _codeCtrl.text.trim(),
+      );
+
+      // Firebase에 로그인 (인증만 확인용)
+      UserCredential userCredential = await auth.signInWithCredential(credential);
+
+      // 인증 성공
+      if (userCredential.user != null) {
+        setState(() {
+          _phoneVerified = true;
+          _codeSent = false;
+          _isVerifying = false;
+        });
+        _showSnackBar('본인인증이 완료되었습니다!');
+
+        // 인증 후 Firebase 사용자 삭제 (회원가입은 우리 서버에서 처리)
+        await auth.currentUser?.delete();
+      } else {
+        setState(() => _isVerifying = false);
+        _showSnackBar('인증에 실패했습니다. 다시 시도해주세요.', isError: true);
+      }
+    } on FirebaseAuthException catch (e) {
+      setState(() => _isVerifying = false);
+      String errorMessage = '인증번호가 올바르지 않거나 만료되었습니다.';
+      if (e.code == 'invalid-verification-code') {
+        errorMessage = '잘못된 인증번호입니다. 다시 확인해주세요.';
+      } else if (e.code == 'session-expired') {
+        errorMessage = '인증 시간이 만료되었습니다. 다시 요청해주세요.';
+      }
+      _showSnackBar(errorMessage, isError: true);
+    } catch (e) {
+      setState(() => _isVerifying = false);
+      _showSnackBar('인증 중 오류가 발생했습니다. 다시 시도해주세요.', isError: true);
     }
   }
 

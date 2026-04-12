@@ -12,10 +12,12 @@ import 'package:flutter/foundation.dart';
 import 'dart:async';
 import 'package:kakao_map_plugin/kakao_map_plugin.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../utils/colors.dart';
 import 'matching_tab.dart';
 import 'active_tab.dart';
 import '../location_search_screen.dart';
+import '../../service/trip_service.dart';
 
 // 탭 전환 신호 역할 (인덱스 전달)
 typedef OnTabChange = void Function(int index);
@@ -42,26 +44,8 @@ class RidePin {
   }
 }
 
-// 더미 핀 데이터 (실제 서비스에서는 서버 API로 교체)
-// 전역 핀 리스트 - 매칭 탭에서 생성된 핀이 여기에 추가됨
-List<RidePin> globalPins = [
-  RidePin(id:'1', hostId:'taxi_kim',  dept:'강남역 2번출구', dest:'김포공항',    time:'14:30', max:4, cur:2, lat:37.4979, lng:127.0276),
-  RidePin(id:'2', hostId:'seoul_lee', dept:'홍대입구역',    dest:'인천공항 T1', time:'15:00', max:3, cur:1, lat:37.5574, lng:126.9249),
-  RidePin(id:'3', hostId:'rider_park',dept:'잠실역 8번출구',dest:'강남역',       time:'14:45', max:4, cur:3, lat:37.5133, lng:127.1001),
-  RidePin(id:'4', hostId:'go_choi',   dept:'신촌역',        dest:'판교역',       time:'16:00', max:2, cur:0, lat:37.5551, lng:126.9368),
-  RidePin(id:'5', hostId:'map_yoon',  dept:'판교역',        dest:'강남역',       time:'17:00', max:3, cur:2, lat:37.3947, lng:127.1111),
-  RidePin(id:'6', hostId:'fast_jung', dept:'수원역',        dest:'사당역',       time:'18:30', max:4, cur:1, lat:37.2663, lng:127.0027),
-];
-
-// 로컬에서 사용할 핀 리스트 (전역 핀 리스트의 별칭)
-const List<RidePin> _allPins = [
-  RidePin(id:'1', hostId:'taxi_kim',  dept:'강남역 2번출구', dest:'김포공항',    time:'14:30', max:4, cur:2, lat:37.4979, lng:127.0276),
-  RidePin(id:'2', hostId:'seoul_lee', dept:'홍대입구역',    dest:'인천공항 T1', time:'15:00', max:3, cur:1, lat:37.5574, lng:126.9249),
-  RidePin(id:'3', hostId:'rider_park',dept:'잠실역 8번출구',dest:'강남역',       time:'14:45', max:4, cur:3, lat:37.5133, lng:127.1001),
-  RidePin(id:'4', hostId:'go_choi',   dept:'신촌역',        dest:'판교역',       time:'16:00', max:2, cur:0, lat:37.5551, lng:126.9368),
-  RidePin(id:'5', hostId:'map_yoon',  dept:'판교역',        dest:'강남역',       time:'17:00', max:3, cur:2, lat:37.3947, lng:127.1111),
-  RidePin(id:'6', hostId:'fast_jung', dept:'수원역',        dest:'사당역',       time:'18:30', max:4, cur:1, lat:37.2663, lng:127.0027),
-];
+// 서버에서 가져온 핀 데이터를 저장할 리스트
+List<RidePin> _serverPins = [];
 
 // ============================================================
 
@@ -83,6 +67,7 @@ class _HomeTabState extends State<HomeTab> {
   Position? _currentPosition;       // 현재 GPS 위치
   StreamSubscription<Position>? _positionStream; // 실시간 위치 스트림
   bool _locationLoading = true;      // GPS 로딩 중
+  bool _pinsLoading = false;         // 핀 데이터 로딩 중
   String? _activePinId;              // 클릭된 핀 ID
   String? _selectedRideId;           // 목록에서 선택된 카드 ID
   bool _showNotifications = false;
@@ -91,6 +76,7 @@ class _HomeTabState extends State<HomeTab> {
   double _mapCenterLng = 126.9971;   // 지도 중심 경도
   bool _isMapReady = false;          // 지도 준비 완료 여부
   bool _showActiveDetail = false;    // 이용 중 창
+  String? _authToken;                // 인증 토큰
 
   final _activeRideState = globalActiveRideState;
 
@@ -108,6 +94,68 @@ class _HomeTabState extends State<HomeTab> {
   void initState() {
     super.initState();
     _initLocation();
+    _loadAuthToken();
+  }
+
+  // 인증 토큰 로드
+  Future<void> _loadAuthToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _authToken = prefs.getString('auth_token');
+    });
+    // 토큰이 있으면 서버에서 핀 데이터 가져오기
+    if (_authToken != null) {
+      await _fetchPinsFromServer();
+    }
+  }
+
+  // 서버에서 핀 데이터 가져오기
+  Future<void> _fetchPinsFromServer() async {
+    if (_authToken == null) return;
+
+    setState(() => _pinsLoading = true);
+
+    try {
+      final trips = await TripService.getTrips(token: _authToken!);
+
+      if (mounted) {
+        setState(() {
+          _serverPins = trips.map((trip) => RidePin(
+            id: trip['id'].toString(),
+            hostId: trip['host_id'] ?? trip['host']?['username'] ?? 'unknown',
+            dept: trip['depart_name'] ?? '출발지',
+            dest: trip['arrive_name'] ?? '도착지',
+            time: trip['depart_time'] != null
+                ? trip['depart_time'].substring(11, 16)  // HH:mm 추출
+                : '--:--',
+            max: trip['capacity'] ?? 4,
+            cur: trip['current_members'] ?? 1,
+            lat: (trip['depart_lat'] as num?)?.toDouble() ?? 37.6108,
+            lng: (trip['depart_lng'] as num?)?.toDouble() ?? 126.9971,
+          )).toList();
+        });
+
+        // 현재 위치 기준으로 필터링
+        if (_currentPosition != null) {
+          _updateVisiblePins(_currentPosition!.latitude, _currentPosition!.longitude);
+        } else {
+          _updateVisiblePins(_mapCenterLat, _mapCenterLng);
+        }
+
+        // 마커 갱신
+        if (_mapController != null) {
+          await _refreshMapMarkers();
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        _showSnackBar('핀 데이터를 불러오는 중 오류가 발생했습니다.', isError: true);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _pinsLoading = false);
+      }
+    }
   }
 
   @override
@@ -179,19 +227,26 @@ class _HomeTabState extends State<HomeTab> {
     setState(() {
       _mapCenterLat = centerLat;
       _mapCenterLng = centerLng;
-      _visiblePins = globalPins.where((pin) {
+      _visiblePins = _serverPins.where((pin) {
         final distance = pin.distanceTo(centerLat, centerLng);
         return distance <= radiusMeters;
       }).toList();
     });
   }
 
+  // 카메라 이동 완료 시 호출 - 서버에서 핀 데이터 다시 가져오기
+  void _onCameraIdle() {
+    if (_authToken != null && !_pinsLoading) {
+      _fetchPinsFromServer();
+    }
+  }
+
   // ── 지도에 표시할 마커 리스트 반환 (선언형 방식) ──────────────────────
   List<Marker> _getMapMarkers() {
     final List<Marker> markers = [];
 
-    // globalPins의 핀 마커 추가
-    for (final pin in globalPins) {
+    // 서버에서 가져온 핀 마커 추가
+    for (final pin in _serverPins) {
       markers.add(Marker(
         markerId: pin.id,
         latLng: LatLng(pin.lat, pin.lng),
@@ -242,19 +297,27 @@ class _HomeTabState extends State<HomeTab> {
   RidePin? get _activePinData =>
       _activePinId == null ? null
           : _visiblePins.firstWhere((p) => p.id == _activePinId,
-          orElse: () => globalPins.isNotEmpty ? globalPins.first : _visiblePins.isNotEmpty ? _visiblePins.first : globalPins.first);
+          orElse: () => _serverPins.isNotEmpty ? _serverPins.first : _visiblePins.isNotEmpty ? _visiblePins.first : _serverPins.first);
 
-  int _lastPinCount = globalPins.length;
+  int _lastPinCount = 0;
+
+  void _showSnackBar(String msg, {bool isError = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      backgroundColor: isError ? AppColors.red : AppColors.primary,
+      behavior: SnackBarBehavior.floating,
+    ));
+  }
 
   @override
   Widget build(BuildContext context) {
     // 핀 개수가 변하면 지도 즉시 새로고침
-    if (_isMapReady && _lastPinCount != globalPins.length) {
-      _lastPinCount = globalPins.length;
+    if (_isMapReady && _lastPinCount != _serverPins.length) {
+      _lastPinCount = _serverPins.length;
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         // 방금 추가된 새 핀(리스트의 마지막 요소)의 좌표로 카메라 이동
-        if (globalPins.isNotEmpty) {
-          final newPin = globalPins.last;
+        if (_serverPins.isNotEmpty) {
+          final newPin = _serverPins.last;
           _mapController?.setCenter(LatLng(newPin.lat, newPin.lng));
           _mapController?.setLevel(4);
         }
@@ -454,19 +517,23 @@ class _HomeTabState extends State<HomeTab> {
           },
         ),
 
-      // 지도 로딩 오버레이 - 위젯 트리 구조 유지를 위해 Visibility 사용
-      // 위치 로딩 + 지도 준비 완료 후에만 숨김
+      // 지도 로딩 오버레이 - 위치 로딩 + 지도 준비 + 핀 데이터 로딩
       Visibility(
-        visible: _locationLoading || !_isMapReady,
+        visible: _locationLoading || !_isMapReady || _pinsLoading,
         child: Container(
           color: Colors.white.withOpacity(0.7),
-          child: const Center(
+          child: Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                CircularProgressIndicator(color: AppColors.primary),
-                SizedBox(height: 12),
-                Text('내 위치를 찾는 중...', style: TextStyle(fontSize: 13, color: AppColors.gray)),
+                const CircularProgressIndicator(color: AppColors.primary),
+                const SizedBox(height: 12),
+                Text(
+                  _pinsLoading
+                      ? '동승 정보를 불러오는 중...'
+                      : '내 위치를 찾는 중...',
+                  style: const TextStyle(fontSize: 13, color: AppColors.gray),
+                ),
               ],
             ),
           ),
@@ -513,6 +580,9 @@ class _HomeTabState extends State<HomeTab> {
 
         // 지도 준비 완료 상태 업데이트
         setState(() => _isMapReady = true);
+
+        // 카메라 이동 감지를 위한 콜백 설정
+        // (주의: kakao_map_plugin 버전에 따라 onCameraIdle 콜백 지원 여부가 다름)
       },
       onMarkerTap: (markerId, latLng, zoomLevel) {
         _onMarkerTap(markerId);
@@ -524,6 +594,12 @@ class _HomeTabState extends State<HomeTab> {
         if (_showNotifications) {
           setState(() => _showNotifications = false);
         }
+      },
+      onCameraIdle: (LatLng latLng, int zoomLevel) {
+        // 카메라 이동 완료 시 서버에서 핀 데이터 갱신
+        _mapCenterLat = latLng.latitude;
+        _mapCenterLng = latLng.longitude;
+        _onCameraIdle();
       },
       currentLevel: 5,
     );

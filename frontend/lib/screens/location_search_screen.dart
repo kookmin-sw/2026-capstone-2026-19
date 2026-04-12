@@ -4,6 +4,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../utils/colors.dart';
 
 // 장소 검색 화면
@@ -21,7 +22,6 @@ class _LocationSearchScreenState extends State<LocationSearchScreen> {
   List<Map<String, dynamic>> _searchResults = [];
   String? _errorMessage;
 
-  static const String _kakaoApiKey = 'KakaoAK 1e744bb93d1f2fd877289039342148d2';
   static const String _kakaoApiUrl = 'https://dapi.kakao.com/v2/local/search/keyword.json';
 
   @override
@@ -46,10 +46,11 @@ class _LocationSearchScreenState extends State<LocationSearchScreen> {
     });
 
     try {
+      final kakaoApiKey = dotenv.env['KAKAO_REST_API_KEY'] ?? '';
       final uri = Uri.parse('$_kakaoApiUrl?query=$query');
       final response = await http.get(
         uri,
-        headers: {'Authorization': _kakaoApiKey},
+        headers: {'Authorization': kakaoApiKey},
       );
 
       if (response.statusCode == 200) {
