@@ -1,5 +1,7 @@
 from rest_framework import serializers
-from .models import ChatRoom
+from trips.models import Trip
+from .models import ChatRoom, ChatMessage
+
 
 class ChatRoomSerializer(serializers.ModelSerializer):
     trip_id = serializers.IntegerField(write_only=True)
@@ -10,13 +12,22 @@ class ChatRoomSerializer(serializers.ModelSerializer):
     class Meta:
         model = ChatRoom
         fields = [
-            'id', 'trip_id', 'trip_title', 'last_message',
-            'pinned_notice', 'created_at', 'unread_count'
+            'id',
+            'trip_id',
+            'trip_title',
+            'last_message',
+            'pinned_notice',
+            'created_at',
+            'unread_count',
         ]
         read_only_fields = ['id', 'created_at']
 
+    def validate_trip_id(self, value):
+        if not Trip.objects.filter(id=value).exists():
+            raise serializers.ValidationError("존재하지 않는 trip_id입니다.")
+        return value
+
     def get_trip_title(self, obj):
-        # Trip 모델의 출발지/목적지 필드명에 맞게 수정하세요 (예: depart_name)
         return f"{obj.trip.depart_name} -> {obj.trip.arrive_name}"
 
     def get_last_message(self, obj):
@@ -29,7 +40,31 @@ class ChatRoomSerializer(serializers.ModelSerializer):
         return 0
 
     def create(self, validated_data):
-        return ChatRoom.objects.create(
-            trip_id=validated_data['trip_id'],
-            pinned_notice=validated_data.get('pinned_notice', "택시 번호 및 만날 위치를 꼭 공유해주세요!")
+        trip_id = validated_data['trip_id']
+        pinned_notice = validated_data.get(
+            'pinned_notice',
+            "택시 번호 및 만날 위치를 꼭 공유해주세요!"
         )
+
+        chat_room, created = ChatRoom.objects.get_or_create(
+            trip_id=trip_id,
+            defaults={
+                'pinned_notice': pinned_notice
+            }
+        )
+        return chat_room
+
+
+class ChatMessageSerializer(serializers.ModelSerializer):
+    sender_user_id = serializers.IntegerField(source="sender_user.id", read_only=True)
+
+    class Meta:
+        model = ChatMessage
+        fields = [
+            "id",
+            "room",
+            "sender_user_id",
+            "message",
+            "sent_at",
+        ]
+        read_only_fields = ["id", "sender_user_id", "sent_at"]
