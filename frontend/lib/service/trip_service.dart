@@ -4,7 +4,7 @@ import 'package:intl/intl.dart';
 
 class TripService {
   // 프로젝트 전체에서 공통으로 사용할 베이스 주소
-  static const String serverUrl = 'http://10.0.2.2:8000';
+  static const String serverUrl = 'http://3.35.37.129:8000';
   static const String tripApiUrl = '$serverUrl/api/trips';
 
   // 1. 핀 생성 API
@@ -128,4 +128,42 @@ class TripService {
       return [];
     }
   }
+  // 5. 핀(카풀/택시) 참여하기 API
+    static Future<Map<String, dynamic>> joinTrip({
+      required String token,
+      required int tripId,
+      required String seatPosition, // 💡만약 참여할 때 좌석 선택도 백엔드로 보내야 한다면 이 주석을 푸세요!
+    }) async {
+      try {
+        // ⚠️ 주의: 백엔드(Django) urls.py에 설정된 참여 API 주소에 맞춰야 합니다.
+        // 보통 '/api/trips/<trip_id>/join/' 또는 '/api/trips/join/' 형태를 씁니다.
+        // 아래는 RESTful 관례에 따른 가장 흔한 형태의 예시입니다.
+        final response = await http.post(
+          Uri.parse('$tripApiUrl/$tripId/join/'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Token $token',
+          },
+
+          body: jsonEncode({
+          'seat_position': seatPosition,
+           }),
+        );
+
+        // 응답 본문이 비어있을 경우를 대비한 안전한 처리
+        Map<String, dynamic> data = {};
+        if (response.body.isNotEmpty) {
+          data = jsonDecode(utf8.decode(response.bodyBytes));
+        }
+
+        // 200(성공) 또는 201(생성됨) 코드가 오면 성공으로 간주
+        if (response.statusCode == 200 || response.statusCode == 201) {
+          return {'success': true, 'message': '참여 성공'};
+        } else {
+          return {'success': false, 'message': data['message'] ?? '참여 실패'};
+        }
+      } catch (e) {
+        return {'success': false, 'message': '서버 연결 오류: $e'};
+      }
+    }
 } // 괄호 오타 수정 완료
