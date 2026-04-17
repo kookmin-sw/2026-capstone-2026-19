@@ -7,21 +7,49 @@ import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../utils/colors.dart';
 import 'active_tab.dart'; // settlementMessageNotifier, SettlementMessage
+import '../../service/trip_service.dart'; // 서버 통신을 위해 추가
 
-// ── 채팅방 모델 ──────────────────────────────────────────────
-class _ChatRoom {
-  final String id, name, lastMessage, time;
+// ── 채팅방 모델 (서버 연동용) ──────────────────────────────────
+class ChatRoomModel {
+  final String id;
+  final String name; // 예: "출발지 -> 목적지"
+  final String lastMessage;
+  final String time;
   final int unreadCount;
-  const _ChatRoom({
+  final String pinnedNotice;
+
+  const ChatRoomModel({
     required this.id,
     required this.name,
     required this.lastMessage,
     required this.time,
     required this.unreadCount,
+    required this.pinnedNotice,
   });
+
+  factory ChatRoomModel.fromJson(Map<String, dynamic> json) {
+    return ChatRoomModel(
+      id: json['id'].toString(),
+      name: json['trip_title'] ?? "새 채팅방", // 백엔드 필드명에 맞게 조정 필요
+      lastMessage: json['last_message'] ?? "채팅방이 생성되었습니다.",
+      time: _formatDate(json['created_at'] ?? ""),
+      unreadCount: json['unread_count'] ?? 0,
+      pinnedNotice: json['pinned_notice'] ?? "택시 번호 및 만날 위치를 꼭 공유해주세요",
+    );
+  }
+
+  static String _formatDate(String dateStr) {
+    if (dateStr.isEmpty) return "";
+    try {
+      final DateTime dt = DateTime.parse(dateStr).toLocal();
+      return "${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
+    } catch (e) {
+      return dateStr;
+    }
+  }
 }
 
-// ── 메시지 모델 ──────────────────────────────────────────────
+// ── 메시지 모델 (채팅방 내부용) ──────────────────────────────────
 class _Message {
   final String id, text, time, userId;
   final bool isMe, isLink, isSettlement;
@@ -41,30 +69,50 @@ class _Message {
   });
 }
 
-const _rooms = [
-  _ChatRoom(id: '1', name: '강남→김포 동승팀',  lastMessage: '출발 10분 전입니다!',          time: '14:20', unreadCount: 2),
-  _ChatRoom(id: '2', name: '홍대→인천공항 팀',  lastMessage: '카카오페이 링크 보내드렸어요', time: '어제',   unreadCount: 0),
-  _ChatRoom(id: '3', name: '잠실→강남 3인팀',   lastMessage: '도착했습니다 감사해요 😊',     time: '월요일', unreadCount: 0),
-];
-
+// 채팅방 내부 테스트용 더미 메시지 (추후 메시지도 서버 연동 필요)
 const _initMessages = [
-  _Message(id: '1', isMe: false, userId: 'travel_kim',
-      text: '안녕하세요! 강남역 2번 출구에서 14:30 출발 예정입니다.', time: '14:10'),
-  _Message(id: '2', isMe: false, userId: 'seoul_lee',
-      text: '네 참여할게요! 카카오페이 링크 부탁드려요.', time: '14:12'),
-  _Message(id: '3', isMe: true, userId: '나',
-      text: '카카오페이 링크입니다 😊', time: '14:13'),
-  _Message(id: '4', isMe: true, userId: '나',
-      text: 'https://qr.kakaopay.com/sample', time: '14:13', isLink: true),
-  _Message(id: '5', isMe: false, userId: 'travel_kim',
-      text: '감사합니다! 출발 10분 전에 알림 드릴게요.', time: '14:15'),
+  _Message(id: '1', isMe: false, userId: 'travel_kim', text: '안녕하세요! 강남역 2번 출구에서 14:30 출발 예정입니다.', time: '14:10'),
+  _Message(id: '2', isMe: false, userId: 'seoul_lee', text: '네 참여할게요! 카카오페이 링크 부탁드려요.', time: '14:12'),
+  _Message(id: '3', isMe: true, userId: '나', text: '카카오페이 링크입니다 😊', time: '14:13'),
+  _Message(id: '4', isMe: true, userId: '나', text: 'https://qr.kakaopay.com/sample', time: '14:13', isLink: true),
+  _Message(id: '5', isMe: false, userId: 'travel_kim', text: '감사합니다! 출발 10분 전에 알림 드릴게요.', time: '14:15'),
 ];
 
 // ============================================================
-// 채팅 탭 — 목록
+// 채팅 탭 — 목록 화면
 // ============================================================
-class MessageTab extends StatelessWidget {
+class MessageTab extends StatefulWidget {
   const MessageTab({super.key});
+
+  @override
+  State<MessageTab> createState() => _MessageTabState();
+}
+
+class _MessageTabState extends State<MessageTab> {
+  List<ChatRoomModel> _serverRooms = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchChatRooms();
+  }
+
+  Future<void> _fetchChatRooms() async {
+    setState(() => _isLoading = true);
+
+    // TODO: 실제 유저의 Token으로 교체해야 합니다.
+    final List<dynamic> data = await TripService.getChatRooms(
+      token: 'this-is-a-fake-test-token-12345',
+    );
+
+    if (mounted) {
+      setState(() {
+        _serverRooms = data.map((item) => ChatRoomModel.fromJson(item)).toList();
+        _isLoading = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -88,10 +136,17 @@ class MessageTab extends StatelessWidget {
               ),
             ),
             Expanded(
-              child: ListView.builder(
-                itemCount: _rooms.length,
-                itemBuilder: (_, i) => _buildRoomTile(context, _rooms[i]),
-              ),
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _serverRooms.isEmpty
+                      ? const Center(child: Text("참여 중인 채팅방이 없습니다.", style: TextStyle(color: AppColors.gray)))
+                      : RefreshIndicator(
+                          onRefresh: _fetchChatRooms,
+                          child: ListView.builder(
+                            itemCount: _serverRooms.length,
+                            itemBuilder: (_, i) => _buildRoomTile(context, _serverRooms[i]),
+                          ),
+                        ),
             ),
           ],
         ),
@@ -99,7 +154,7 @@ class MessageTab extends StatelessWidget {
     );
   }
 
-  Widget _buildRoomTile(BuildContext context, _ChatRoom room) {
+  Widget _buildRoomTile(BuildContext context, ChatRoomModel room) {
     return InkWell(
       onTap: () => Navigator.push(
         context,
@@ -120,16 +175,17 @@ class MessageTab extends StatelessWidget {
                     border: Border.all(color: AppColors.border)),
                 child: const Icon(Icons.person, color: AppColors.gray, size: 28),
               ),
-              Positioned(
-                bottom: 0, right: 0,
-                child: Container(
-                  width: 12, height: 12,
-                  decoration: BoxDecoration(
-                      color: AppColors.success,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 2)),
+              if (room.unreadCount > 0) // 안읽은 메시지가 있을 때만 초록불 표시 (옵션)
+                Positioned(
+                  bottom: 0, right: 0,
+                  child: Container(
+                    width: 12, height: 12,
+                    decoration: BoxDecoration(
+                        color: AppColors.success,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 2)),
+                  ),
                 ),
-              ),
             ]),
             const SizedBox(width: 14),
             Expanded(
@@ -179,7 +235,7 @@ class MessageTab extends StatelessWidget {
 // 채팅방 화면
 // ============================================================
 class ChatRoomScreen extends StatefulWidget {
-  final _ChatRoom room;
+  final ChatRoomModel room; // <-- 수정된 부분
   const ChatRoomScreen({super.key, required this.room});
 
   @override
@@ -202,7 +258,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   @override
   void initState() {
     super.initState();
-    // 정산 요청 메시지 수신
     settlementMessageNotifier.addListener(_onSettlementMessage);
   }
 
@@ -235,7 +290,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     _scrollToBottom();
   }
 
-  // 이미지 선택 메서드
   Future<void> _pickImage(ImageSource source) async {
     try {
       final XFile? picked = await _picker.pickImage(
@@ -331,10 +385,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(widget.room.name,
+                Text(widget.room.name, // <-- 방 이름 동적 출력
                     style: const TextStyle(
                         fontSize: 14, fontWeight: FontWeight.w700)),
-                const Text('● 3명 참여 중',
+                const Text('● 참여자 로딩 중...', // 추후 인원수 연동 필요
                     style:
                     TextStyle(fontSize: 11, color: AppColors.success)),
               ],
@@ -391,7 +445,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   }
 
   Widget _buildNoticeBar() {
-    const noticeText = '택시 번호 및 만날 위치를 꼭 공유해주세요';
+    final noticeText = widget.room.pinnedNotice; // <-- 서버에서 받은 공지사항 적용
     return GestureDetector(
       onTap: () => setState(() => _noticeExpanded = !_noticeExpanded),
       child: Container(
@@ -468,7 +522,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   Widget _buildMessageBubble(_Message msg) {
     final isHighlighted = _searchQuery.isNotEmpty && msg.text.contains(_searchQuery);
 
-    // 정산 요청 카드 (항상 내 메시지 형태 — 대표자가 보낸 것)
     if (msg.isSettlement && msg.settlement != null) {
       return _buildSettlementBubble(msg, msg.settlement!);
     }
@@ -527,7 +580,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     );
   }
 
-  // ── 정산 요청 카드 버블 ──────────────────────────────────
   Widget _buildSettlementBubble(_Message msg, SettlementMessage s) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
@@ -556,7 +608,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // 헤더
                   Container(
                     padding: const EdgeInsets.symmetric(
                         horizontal: 16, vertical: 12),
@@ -601,14 +652,11 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                       ],
                     ),
                   ),
-
-                  // 금액 정보
                   Padding(
                     padding: const EdgeInsets.all(16),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // 총 요금
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
@@ -627,7 +675,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                         const SizedBox(height: 6),
                         const Divider(color: AppColors.border, height: 1),
                         const SizedBox(height: 10),
-                        // 1인당 정산 금액
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
@@ -646,7 +693,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                           ],
                         ),
                         const SizedBox(height: 14),
-                        // 정산하기 버튼
                         SizedBox(
                           width: double.infinity,
                           child: ElevatedButton(
@@ -699,7 +745,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   }
 
   Widget _buildBubbleContent(_Message msg, bool isHighlighted) {
-    // 이미지 메시지 처리
     if (msg.imageFile != null) {
       return ConstrainedBox(
         constraints: BoxConstraints(
@@ -789,7 +834,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          // _pickImage 연결
           _attachItem(Icons.photo_library_outlined, '사진',
                   () {
                 setState(() => _showAttachPanel = false);
@@ -844,7 +888,6 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     );
   }
 
-  /// 활성/비활성 상태가 있는 첨부 아이템
   Widget _attachItemWithState({
     required IconData icon,
     required String label,

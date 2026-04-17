@@ -1,31 +1,34 @@
-from django import db
-from django.http import JsonResponse
-from rest_framework.decorators import api_view
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from django.db.models import Q
 from .models import ChatRoom
-from trips.models import Trip
+from .serializers import ChatRoomSerializer
 
 
-@api_view(['POST'])
-def create_new_chatroom(request):
-    trip_id = request.data.get('trip_id')
+class ChatRoomListCreateView(APIView):
+    permission_classes = [IsAuthenticated]
 
-    try:
-        trip = Trip.objects.get(id=trip_id)
+    # 🌟 [변경됨] DB 수정 없이 Trip과의 관계를 이용해 목록 가져오기
+    def get(self, request):
+        user = request.user
 
-        # 1. 기존에 이 Trip에 연결된 방이 있다면 삭제 (항상 새로 만들기 위해)
-        ChatRoom.objects.filter(trip=trip).delete()
+        # 💡 중요: 여기서는 Trip 모델에서 유저가 참여 중인지 판단하는 기준을 적어야 합니다.
+        # 아래는 예시입니다. 본인의 Trip 모델 구조에 맞춰서 필드명을 변경해주세요!
+        # 예: 내가 방장(host)이거나, 동승객(passengers) 테이블에 내가 있는 경우
+        rooms = ChatRoom.objects.filter(
+            Q(trip__host=user) | Q(trip__passengers=user)  # <-- 이 부분을 실제 DB 필드에 맞게 수정!
+        ).distinct().order_by('-created_at')
 
-        # 2. 새 방 생성
-        room = ChatRoom.objects.create(trip=trip)
+        serializer = ChatRoomSerializer(rooms, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
-        # 3. Flutter에게 필요한 최소한의 정보 전달
-        return JsonResponse({
-            'status': 'success',
-            'room_id': room.id,
-            'trip_id': trip.id,
-            # Flutter가 이 주소로 바로 WebSocket 연결을 시도함
-            'ws_url': f"ws://your-server-domain/ws/chat/{trip.id}/"
-        })
-
-    except Trip.DoesNotExist:
-        return JsonResponse({'error': '해당 여행 정보가 없습니다.'}, status=404)
+    # 채팅방 개설 (참여자 추가 로직 삭제됨)
+    def post(self, request):
+        serializer = ChatRoomSerializer(data=request.data)
+        if serializer.is_valid():
+            chat_room = serializer.save()
+            # DB 수정(participants 필드)을 안 하므로, 여기서는 그냥 방만 만듭니다.
+            return Response({"id": chat_room.id}, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
