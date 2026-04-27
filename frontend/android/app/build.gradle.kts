@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -20,8 +22,10 @@ android {
         options.compilerArgs.add("-Xlint:-options")
     }
 
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_17.toString()
+    kotlin {
+        compilerOptions {
+            jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+        }
     }
 
     defaultConfig {
@@ -33,6 +37,16 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        
+        // Load API keys from local.properties
+        val localProperties = File(rootDir, "local.properties")
+        val kakaoAppKey = if (localProperties.exists()) {
+            Properties().apply {
+                load(localProperties.inputStream())
+            }.getProperty("KAKAO_APP_KEY", "")
+        } else ""
+        
+        manifestPlaceholders["KAKAO_APP_KEY"] = kakaoAppKey
     }
 
     buildTypes {

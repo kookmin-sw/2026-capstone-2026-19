@@ -18,7 +18,7 @@
         <!-- 카카오맵 SDK AppKey -->
         <meta-data
             android:name="com.kakao.sdk.AppKey"
-            android:value="ab5f9937336b573d4e68ad90b988bd9c"/>
+            android:value="${KAKAO_APP_KEY}"/>
 
         <!-- Impeller 비활성화 (카카오맵 웹뷰 충돌 방지) -->
         <meta-data

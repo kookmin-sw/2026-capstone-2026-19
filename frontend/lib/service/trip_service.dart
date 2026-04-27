@@ -1,10 +1,11 @@
 import 'dart:convert';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 // 주의: pubspec.yaml에 intl을 추가해야 이 줄의 에러가 사라집니다.
 import 'package:intl/intl.dart';
 
 class TripService {
-  static const String baseUrl = 'http://10.0.2.2:8000/api/trips';
+  static String get baseUrl => '${dotenv.env['BASE_URL']}/api/trips';
 
   // 1. 핀 생성 API
   static Future<Map<String, dynamic>> createTrip({

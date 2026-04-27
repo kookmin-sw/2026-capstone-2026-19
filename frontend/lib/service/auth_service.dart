@@ -1,9 +1,10 @@
 import 'dart:convert';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 
 class AuthService {
-  // 에뮬레이터 기준 localhost 주소. 실기기 테스트 시 192.168.x.x (PC의 IP)로 변경해야 합니다.
-  static const String baseUrl = 'http://10.0.2.2:8000/api/accounts';
+  // Base URL from environment variable
+  static String get baseUrl => '${dotenv.env['BASE_URL']}/api/accounts';
 
   // ============================================================
   // [실제 통신] 백엔드(Django)와 연결된 API

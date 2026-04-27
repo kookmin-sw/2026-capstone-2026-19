@@ -1,0 +1,60 @@
+# iOS Secrets - Never commit API keys
+Secrets.xcconfig
+
+# Xcode
+*.mode1v3
+*.mode2v3
+*.moved-aside
+*.pbxuser
+*.perspectivev3
+**/*sync/
+*.sconsign.dblite
+*.tags*
+**/.vagrant/
+**/DerivedData/
+Icon?
+**/Pods/
+**/.symlinks/
+profile
+tags
+**/Flutter/app.flx
+**/Flutter/Flutter.framework
+**/Flutter/Flutter.podspec
+**/Flutter/Generated.xcconfig
+**/Flutter/flutter_export_environment.sh
+**/Flutter/flutter_assets/
+**/Flutter/ephemeral/
+**/Flutter/App.framework
+**/Flutter/FlutterPluginRegistrant/
+ServiceDefinitions.json
+xcuserdata/
+
+# Build artifacts
+build/
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# CocoaPods
+Podfile.lock
+
+# Thumbnails
+._*
+
+# Files that might appear in the root of a volume
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IntelliJ
+*.iml
+.idea/
