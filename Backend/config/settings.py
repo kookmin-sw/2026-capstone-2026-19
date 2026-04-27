@@ -29,7 +29,7 @@ SECRET_KEY = 'django-insecure-rg0l!y)axn%15+!#=_yy7qi^9&s&(_jf=+6(#rc^5j2(va-m1a
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['*']
 
 
 # Application definition
@@ -37,6 +37,7 @@ ALLOWED_HOSTS = []
 INSTALLED_APPS = [
     "daphne",
     "channels",
+    'corsheaders',
 
     'django.contrib.admin',
     'django.contrib.auth',
@@ -57,6 +58,7 @@ INSTALLED_APPS = [
 
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -141,3 +143,15 @@ USE_TZ = True
 STATIC_URL = 'static/'
 AUTH_USER_MODEL = "accounts.User"
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.TokenAuthentication',
+        # 세션 인증이 필요하다면 아래 줄 추가 (관리자 페이지 등)
+        'rest_framework.authentication.SessionAuthentication',
+    ],
+    # 기본적으로 인증된 사용자만 API 접근 허용 (뷰마다 덮어쓰기 가능)
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ]
+}

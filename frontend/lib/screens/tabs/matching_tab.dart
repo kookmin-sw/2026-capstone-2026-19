@@ -1148,7 +1148,20 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
               style: const TextStyle(fontSize: 13, color: AppColors.gray)),
           actions: [
             TextButton(
-              onPressed: () { Navigator.pop(context); Navigator.pop(context); },
+              onPressed: () { Navigator.pop(context); // 1. 다이얼로그 닫기
+
+                // 2. 참여 화면(RideJoinScreen)을 닫고 바로 채팅방 화면으로 이동!
+                // (ChatRoomScreen은 채팅 UI가 구현될 새로운 파일/클래스 이름이라고 가정)
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ChatRoomScreen(
+                      tripId: widget.pin['id'], // ✨ 가장 중요한 tripId 전달
+                      hostId: widget.pin['hostId'],
+                    ),
+                  ),
+                );
+               },
               child: const Text('확인', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700)),
             ),
           ],
