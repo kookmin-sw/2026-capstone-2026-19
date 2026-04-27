@@ -6,6 +6,7 @@ import 'package:flutter/cupertino.dart';
 import '../../utils/colors.dart';
 import '../location_search_screen.dart';
 import 'home_tab.dart' as home;
+import 'message_tab.dart';
 import '../../service/trip_service.dart';
 
 // 매칭 탭 전체 레이아웃 (내부 상태 변경 시 화면 리빌드)
@@ -184,7 +185,12 @@ class _MatchingTabState extends State<MatchingTab>
 
   // 검색 시 출력되는 핀 목록
   Widget _buildPinList() {
-    final pins = _filteredPins;
+    // 검색어가 있으면 필터링, 없으면 전체 리스트 반환
+    final pins = _searchQuery.isEmpty
+        ? _serverPins
+        : _serverPins.where((pin) =>
+            pin.dept.contains(_searchQuery) || pin.dest.contains(_searchQuery)).toList();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -195,11 +201,13 @@ class _MatchingTabState extends State<MatchingTab>
               style: const TextStyle(fontSize: 12, color: AppColors.gray)),
         ),
         Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: pins.length,
-            itemBuilder: (_, i) => _buildSearchCard(pins[i]),
-          ),
+          child: _isFetching
+            ? const Center(child: CircularProgressIndicator())
+            : ListView.builder(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                itemCount: pins.length,
+                itemBuilder: (_, i) => _buildSearchCard(pins[i]),
+              ),
         ),
       ],
     );
@@ -317,6 +325,7 @@ class _MatchingTabState extends State<MatchingTab>
                         Navigator.push(
                           context,
                           MaterialPageRoute(builder: (_) => RideJoinScreen(pin: {
+                            'id': pin.id, // ✅ 백엔드 연동을 위해 핀 ID 전달 추가 완료
                             'hostId': pin.hostId,
                             'dept': pin.dept,
                             'dest': pin.dest,
@@ -517,7 +526,7 @@ class _MatchingTabState extends State<MatchingTab>
           ),
           const SizedBox(height: 16),
 
-          // 카카오페이 링크 입력 (필수로 하기?)
+          // 카카오페이 링크 입력
           _label('💛 카카오페이 링크 (필수)'), const SizedBox(height: 6),
           TextField(
             controller: _kakaoCtrl,
@@ -532,7 +541,7 @@ class _MatchingTabState extends State<MatchingTab>
           ),
           const SizedBox(height: 24),
 
-          // 핀 생성 버튼 (이걸로 교체!)
+          // 핀 생성 버튼
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
@@ -543,7 +552,6 @@ class _MatchingTabState extends State<MatchingTab>
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                 elevation: 0,
               ),
-              // 로딩 중일 때는 클릭이 안 되게(null) 만들고, 아니면 생성 함수 실행
               onPressed: _isLoading ? null : _handleCreate,
               child: _isLoading
                 ? const SizedBox(
@@ -560,7 +568,7 @@ class _MatchingTabState extends State<MatchingTab>
     );
   }
 
-  // 시간 선택 바텀 시트 표시 메서드 (출발 시간 선택 시 실행)
+  // 시간 선택 바텀 시트 표시 메서드
   void _showTimePicker() {
     showModalBottomSheet(
       context: context,
@@ -582,14 +590,14 @@ class _MatchingTabState extends State<MatchingTab>
                 height: 200,
                 child: CupertinoDatePicker(
                   mode: CupertinoDatePickerMode.time,
-                  use24hFormat: false, // 12시간 형식(AM/PM)
+                  use24hFormat: false,
                   initialDateTime: DateTime(2024, 1, 1, _selectedTime.hour, _selectedTime.minute),
                   onDateTimeChanged: (dt) {
                     setModalState(() => tempTime = TimeOfDay(hour: dt.hour, minute: dt.minute));
                   },
                 ),
               ),
-              Padding( // 확인 버튼
+              Padding(
                 padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
                 child: SizedBox(
                   width: double.infinity,
@@ -612,12 +620,11 @@ class _MatchingTabState extends State<MatchingTab>
     );
   }
 
-// --- 아래 코드를 통째로 추가 ---
+  // 서버에서 핀 목록 가져오기
   Future<void> _fetchTrips() async {
     if (!mounted) return;
     setState(() => _isFetching = true);
 
-    // TODO: 실제 앱에서는 로그인 토큰을 사용하세요.
     final List<dynamic> data = await TripService.getTrips(token: 'this-is-a-fake-test-token-12345');
 
     if (mounted) {
@@ -638,10 +645,8 @@ class _MatchingTabState extends State<MatchingTab>
     }
   }
 
-
-  // ✅ 새로 교체할 코드 (서버 통신 버전)
+  // 서버 연동 버전 핀 생성 및 채팅방 생성 로직
   Future<void> _handleCreate() async {
-    // 1. 입력값 검사
     if (_deptCtrl.text.isEmpty || _destCtrl.text.isEmpty) {
       _showSnackBar('출발지와 목적지를 입력해주세요.', AppColors.red);
       return;
@@ -655,19 +660,17 @@ class _MatchingTabState extends State<MatchingTab>
       return;
     }
 
-    // 2. 로딩 상태 시작
     setState(() => _isLoading = true);
 
-    // 3. 시간 데이터 생성
     final now = DateTime.now();
     final departDateTime = DateTime(
       now.year, now.month, now.day,
       _selectedTime.hour, _selectedTime.minute,
     );
 
-    // 4. API 서버에 핀 생성 요청
+    // 1. 핀 생성 API 호출
     final result = await TripService.createTrip(
-      token: 'this-is-a-fake-test-token-12345', // 👈 나중에 실제 토큰으로 교체
+      token: 'this-is-a-fake-test-token-12345',
       deptName: _deptCtrl.text,
       deptLat: _deptLat!,
       deptLng: _deptLng!,
@@ -681,24 +684,49 @@ class _MatchingTabState extends State<MatchingTab>
     );
 
     if (!mounted) return;
-    setState(() => _isLoading = false); // 로딩 종료
 
-    // 5. 결과에 따른 처리
     if (result['success']) {
-      // 입력창 초기화
+      final int newTripId = result['id'];
+
+      // 2. 채팅방 생성 API 호출
+      final chatResult = await TripService.createChatRoom(
+        token: 'this-is-a-fake-test-token-12345',
+        tripId: newTripId,
+      );
+
+      if (chatResult['success']) {
+        print("✅ 채팅방 생성 성공: ID ${chatResult['id']}");
+      } else {
+        print("❌ 채팅방 생성 실패: ${chatResult['message']}");
+      }
+
+      // 로컬 리스트 업데이트 및 화면 전환
+      home.serverPins.add(home.RidePin(
+        id: newTripId.toString(),
+        hostId: 'my_username',
+        dept: _deptCtrl.text,
+        dest: _destCtrl.text,
+        time: '${_selectedTime.hour.toString().padLeft(2, '0')}:${_selectedTime.minute.toString().padLeft(2, '0')}',
+        max: _maxPeople,
+        cur: 1,
+        lat: _deptLat!,
+        lng: _deptLng!,
+      ));
+
+      setState(() => _pinCreated = true);
+
       _deptCtrl.clear(); _destCtrl.clear(); _kakaoCtrl.clear();
       _deptLat = null; _deptLng = null; _destLat = null; _destLng = null;
       _selectedSeat = null;
 
-      // 홈 화면으로 이동
       widget.onGoHome?.call();
     } else {
-      // 실패 시 에러 메시지
       _showSnackBar(result['message'], AppColors.red);
     }
+
+    setState(() => _isLoading = false);
   }
 
-  // 메시지 표시를 위한 작은 도구 (에러 알림용)
   void _showSnackBar(String message, Color color) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(message),
@@ -706,12 +734,9 @@ class _MatchingTabState extends State<MatchingTab>
     ));
   }
 
-  // 헬퍼 위젯 (재사용 위젯)
-  // 제목 텍스트 표준 스타일
   Widget _label(String text) =>
       Text(text, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.secondary));
 
-  // 출발지/목적지 검색 화면 열기
   Future<void> _openLocationSearch(bool isDeparture) async {
     final result = await Navigator.push<Map<String, dynamic>>(
       context,
@@ -737,7 +762,6 @@ class _MatchingTabState extends State<MatchingTab>
     }
   }
 
-  // 장소 검색용 텍스트 필드
   Widget _locationTextField({
     required TextEditingController controller,
     required String hint,
@@ -778,7 +802,6 @@ class _MatchingTabState extends State<MatchingTab>
     );
   }
 
-  // 뱃지 스타일
   Widget _tag(String text, {Color color = AppColors.primary, Color bg = AppColors.primaryLight}) =>
       Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -801,9 +824,9 @@ class RideJoinScreen extends StatefulWidget {
 // 참여 화면 상태 관리 및 UI 렌더링
 class _RideJoinScreenState extends State<RideJoinScreen> {
   String? _selectedSeat;
-  final List<String> _takenSeats = ['조수석', '왼쪽 창가']; // 더미: 실제론 pin 데이터에서
+  final List<String> _takenSeats = ['조수석', '왼쪽 창가']; // 추후 서버 데이터 연동 필요
+  bool _isLoading = false; // ✅ 동승 참여 로딩 상태 변수 추가
 
-  // 참여 화면 전체 UI 렌더링
   @override
   Widget build(BuildContext context) {
     final pin = widget.pin;
@@ -814,24 +837,22 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
     return Scaffold(
       backgroundColor: Colors.white,
 
-      // 앱 바 (참여 화면 상단 헤더)
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
-        leading: IconButton( // 뒤로가기
+        leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new, color: AppColors.secondary, size: 18),
           onPressed: () => Navigator.pop(context),
         ),
         title: const Text('동승 참여',
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.secondary)),
         centerTitle: true,
-        bottom: PreferredSize(  // 하단 구분선
+        bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1),
           child: Container(height: 1, color: AppColors.border),
         ),
       ),
 
-      // 참여 화면 바디
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -852,7 +873,7 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
                   child: const Icon(Icons.person, color: AppColors.gray, size: 28),
                 ),
                 const SizedBox(width: 14),
-                Column( // 대표자 아이디, 뱃지
+                Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text('@${pin['hostId']}',
@@ -894,7 +915,7 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
 
             // 출발 시간 & 모집 인원 섹션
             Row(
-              children: [// 출발 시간
+              children: [
                 Expanded(child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -909,7 +930,7 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
                   ],
                 )),
                 const SizedBox(width: 12),
-                Expanded(child: Column( // 모집 인원
+                Expanded(child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _sectionTitle('👥 모집 인원'),
@@ -940,15 +961,14 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
             const SizedBox(height: 10),
             _card(
               child: Padding(
-                padding: const EdgeInsets.all(12), // 여기서 전체적인 내부 여백을 조절합니다.
+                padding: const EdgeInsets.all(12),
                 child: Column(
                   children: [
-                    // 1행 — 운전석 / 조수석
                     Row(
                       children: [
                         Expanded(
                           child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8), // 높이 축소
+                            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
                             decoration: BoxDecoration(
                               color: const Color(0xFFF5F5F5),
                               border: Border.all(color: AppColors.gray.withOpacity(0.2)),
@@ -956,7 +976,7 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
                             ),
                             child: const Column(
                               children: [
-                                Icon(Icons.settings, size: 18, color: AppColors.gray), // 아이콘 축소
+                                Icon(Icons.settings, size: 18, color: AppColors.gray),
                                 SizedBox(height: 4),
                                 Text('운전석', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.gray)),
                                 Text('운전자', style: TextStyle(fontSize: 9, color: AppColors.gray)),
@@ -973,7 +993,6 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
                     const Divider(color: AppColors.border, height: 1),
                     const SizedBox(height: 8),
 
-                    // 2행 — 좌석들
                     Row(
                       children: [
                         Expanded(child: _seatButton('왼쪽 창가', Icons.airline_seat_recline_normal)),
@@ -985,7 +1004,6 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
                     ),
                     const SizedBox(height: 12),
 
-                    // 범례
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
@@ -1013,13 +1031,18 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                   elevation: 0,
                 ),
-                onPressed: (isFull || _selectedSeat == null) ? null : _handleJoin,
-                child: Text(
-                  isFull ? '마감된 팀입니다'
-                      : _selectedSeat == null ? '좌석을 선택해 주세요'
-                      : '참여하기',
-                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
-                ),
+                // ✅ 로딩 중일 때 버튼 비활성화 연결
+                onPressed: (isFull || _selectedSeat == null || _isLoading) ? null : _handleJoin,
+                child: _isLoading
+                  ? const SizedBox(
+                      width: 20, height: 20,
+                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                  : Text(
+                      isFull ? '마감된 팀입니다'
+                          : _selectedSeat == null ? '좌석을 선택해 주세요'
+                          : '참여하기',
+                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                    ),
               ),
             ),
             const SizedBox(height: 20),
@@ -1031,7 +1054,6 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
 
   //------------------------------------------------------------------------
 
-  // 좌석 선택 버튼 위젯
   Widget _seatButton(String label, IconData icon) {
     final isTaken = _takenSeats.contains(label);
     final isSelected = _selectedSeat == label;
@@ -1060,8 +1082,6 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
     );
   }
 
-  // 헬퍼 위젯
-  // 섹션 카드 공통 스타일
   Widget _card({required Widget child}) => Container(
     width: double.infinity,
     padding: const EdgeInsets.all(16),
@@ -1072,7 +1092,6 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
     child: child,
   );
 
-  // 경로 섹션 스타일
   Widget _routeRow(IconData icon, Color color, String label, String value) => Row(children: [
     Icon(icon, color: color, size: 22),
     const SizedBox(width: 12),
@@ -1082,11 +1101,9 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
     ]),
   ]);
 
-  // 각 섹션 tilte 스타일
   Widget _sectionTitle(String text) =>
       Text(text, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: AppColors.secondary));
 
-  // 뱃지 형태 라벨 위젯 스타일
   Widget _tag(String text, {Color color = AppColors.primary, Color bg = AppColors.primaryLight}) =>
       Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -1094,7 +1111,6 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
         child: Text(text, style: TextStyle(fontSize: 10, color: color, fontWeight: FontWeight.w700)),
       );
 
-  // 좌석 상태 스타일
   Widget _legend(Color bg, Color border, String label) => Row(children: [
     Container(width: 14, height: 14,
         decoration: BoxDecoration(color: bg, border: Border.all(color: border), borderRadius: BorderRadius.circular(4))),
@@ -1104,23 +1120,63 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
 
   //---------------------------------------------------------------------------------------
 
-  // 참여 완료 다이얼로그 표시 메서드 (참여하기 버튼 클릭 시 실행)
-  void _handleJoin() {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('참여 완료! 🎉',
-            style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.secondary)),
-        content: Text('@${widget.pin['hostId']} 팀에 참여했습니다.\n좌석: $_selectedSeat',
-            style: const TextStyle(fontSize: 13, color: AppColors.gray)),
-        actions: [
-          TextButton(
-            onPressed: () { Navigator.pop(context); Navigator.pop(context); },
-            child: const Text('확인', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700)),
-          ),
-        ],
-      ),
+  // ✅ 서버 연동 버전의 참여 완료 함수
+  Future<void> _handleJoin() async {
+    setState(() => _isLoading = true);
+
+    // 1. 서버에 참여 요청 보내기
+    final result = await TripService.joinTrip(
+      token: 'this-is-a-fake-test-token-12345', // 실제 토큰으로 교체 필요
+      tripId: widget.pin['id'],      // 전달받은 핀 ID 사용
+      seatPosition: _selectedSeat!,
     );
+
+    if (!mounted) return;
+    setState(() => _isLoading = false);
+
+    // 2. 결과 처리
+    if (result['success']) {
+      showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text('참여 완료! 🎉',
+              style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.secondary)),
+          content: Text('@${widget.pin['hostId']} 팀에 참여했습니다.\n좌석: $_selectedSeat',
+              style: const TextStyle(fontSize: 13, color: AppColors.gray)),
+          actions: [
+            TextButton(
+              onPressed: () { Navigator.pop(context); // 1. 다이얼로그 닫기
+
+                // 2. 참여 화면(RideJoinScreen)을 닫고 바로 채팅방 화면으로 이동!
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ChatRoomScreen(
+                      room: ChatRoomModel(
+                        id: widget.pin['id'],
+                        name: '${widget.pin['dept']} → ${widget.pin['dest']}',
+                        lastMessage: '채팅방이 생성되었습니다.',
+                        time: TimeOfDay.now().format(context),
+                        unreadCount: 0,
+                        pinnedNotice: '만날 위치를 공유해주세요',
+                      ),
+                      myNickname: 'my_username',
+                    ),
+                  ),
+                );
+               },
+              child: const Text('확인', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700)),
+            ),
+          ],
+        ),
+      );
+    } else {
+      // 실패 시 에러 스낵바
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(result['message'] ?? '참여에 실패했습니다.'),
+        backgroundColor: AppColors.red,
+      ));
+    }
   }
 }

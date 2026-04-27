@@ -54,7 +54,7 @@ class User(AbstractUser):
     
     username = models.CharField(max_length=150, unique=True)
     user_real_name = models.CharField(max_length=50)
-    nickname = models.CharField(max_length=20, null=True, blank=True)
+    nickname = models.CharField(max_length=20, unique=True)
     phone_number = models.CharField(
         max_length=11,
         unique=True,
@@ -87,7 +87,7 @@ class User(AbstractUser):
     updated_at = models.DateTimeField(auto_now=True)
 
     USERNAME_FIELD = "username"
-    REQUIRED_FIELDS = ["user_real_name", "phone_number", "gender"]
+    REQUIRED_FIELDS = ["nickname", "user_real_name", "phone_number", "gender"]
 
     objects = UserManager()
 

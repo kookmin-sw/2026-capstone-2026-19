@@ -45,7 +45,7 @@ class RidePin {
 }
 
 // 서버에서 가져온 핀 데이터를 저장할 리스트
-List<RidePin> _serverPins = [];
+List<RidePin> serverPins = [];
 
 // ============================================================
 
@@ -120,7 +120,7 @@ class _HomeTabState extends State<HomeTab> {
 
       if (mounted) {
         setState(() {
-          _serverPins = trips.map((trip) => RidePin(
+          serverPins = trips.map((trip) => RidePin(
             id: trip['id'].toString(),
             hostId: trip['host_id'] ?? trip['host']?['username'] ?? 'unknown',
             dept: trip['depart_name'] ?? '출발지',
@@ -227,7 +227,7 @@ class _HomeTabState extends State<HomeTab> {
     setState(() {
       _mapCenterLat = centerLat;
       _mapCenterLng = centerLng;
-      _visiblePins = _serverPins.where((pin) {
+      _visiblePins = serverPins.where((pin) {
         final distance = pin.distanceTo(centerLat, centerLng);
         return distance <= radiusMeters;
       }).toList();
@@ -246,7 +246,7 @@ class _HomeTabState extends State<HomeTab> {
     final List<Marker> markers = [];
 
     // 서버에서 가져온 핀 마커 추가
-    for (final pin in _serverPins) {
+    for (final pin in serverPins) {
       markers.add(Marker(
         markerId: pin.id,
         latLng: LatLng(pin.lat, pin.lng),
@@ -297,7 +297,7 @@ class _HomeTabState extends State<HomeTab> {
   RidePin? get _activePinData =>
       _activePinId == null ? null
           : _visiblePins.firstWhere((p) => p.id == _activePinId,
-          orElse: () => _serverPins.isNotEmpty ? _serverPins.first : _visiblePins.isNotEmpty ? _visiblePins.first : _serverPins.first);
+          orElse: () => serverPins.isNotEmpty ? serverPins.first : _visiblePins.isNotEmpty ? _visiblePins.first : serverPins.first);
 
   int _lastPinCount = 0;
 
@@ -312,12 +312,12 @@ class _HomeTabState extends State<HomeTab> {
   @override
   Widget build(BuildContext context) {
     // 핀 개수가 변하면 지도 즉시 새로고침
-    if (_isMapReady && _lastPinCount != _serverPins.length) {
-      _lastPinCount = _serverPins.length;
+    if (_isMapReady && _lastPinCount != serverPins.length) {
+      _lastPinCount = serverPins.length;
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         // 방금 추가된 새 핀(리스트의 마지막 요소)의 좌표로 카메라 이동
-        if (_serverPins.isNotEmpty) {
-          final newPin = _serverPins.last;
+        if (serverPins.isNotEmpty) {
+          final newPin = serverPins.last;
           _mapController?.setCenter(LatLng(newPin.lat, newPin.lng));
           _mapController?.setLevel(4);
         }
