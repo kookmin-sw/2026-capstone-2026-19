@@ -890,6 +890,7 @@ class _MannerScreenState extends State<_MannerScreen> {
                 ),
                 const SizedBox(width: 12),
                 Expanded(
+
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
