@@ -24,4 +24,10 @@ urlpatterns = [
     # 3. 각 앱의 상세 지도로 연결
     path('api/accounts/', include('accounts.urls')),
     path('api/trips/', include('trips.urls')),
+    path('api/users/', include('accounts.urls')),
+    path('api/moderation/', include('moderation.urls')),
+    path('/chat/rooms/', include('chat.urls')),
+    path('/api/trips/{tripId}/join/', include('trips.urls')),
+
+
 ]
