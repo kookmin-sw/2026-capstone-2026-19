@@ -6,36 +6,67 @@ class AuthService {
   static const String baseUrl = 'http://3.35.37.129:8000/api/accounts';
 
   // ============================================================
-  // [실제 통신] 백엔드(Django)와 연결된 API
+  // [OCTOMO 역발상 인증] 사용자가 서버 번호(1666-3538)로 문자 발송
   // ============================================================
 
-  // 1. 인증번호 전송 API
-  static Future<Map<String, dynamic>> sendVerificationCode({required String phone}) async {
+  // 1. 인증 코드 발급 API (Step 1)
+  // 서버가 6자리 인증 코드를 생성하고, 수신 번호(1666-3538)와 함께 반환
+  static Future<Map<String, dynamic>> issueCode({required String phone}) async {
     try {
       final response = await http.post(
-        Uri.parse('$baseUrl/send-code/'),
+        Uri.parse('$baseUrl/issue-code/'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'phone': phone}),
       );
-      return {'success': response.statusCode == 200};
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(utf8.decode(response.bodyBytes));
+        return {
+          'success': true,
+          'receiverNumber': data['receiver_number'],
+          'receiverDisplay': data['receiver_display'],
+          'verificationCode': data['verification_code'],
+          'expiresIn': data['expires_in'],
+        };
+      } else {
+        final data = jsonDecode(utf8.decode(response.bodyBytes));
+        return {
+          'success': false,
+          'message': data['message'] ?? '인증 코드 발급에 실패했습니다.'
+        };
+      }
     } catch (e) {
-      return {'success': false, 'message': '서버 연결 오류'};
+      return {'success': false, 'message': '서버 연결 오류: $e'};
     }
   }
 
-  // 2. 인증번호 확인 API
-  static Future<Map<String, dynamic>> verifyCode({required String phone, required String code}) async {
+  // 2. 인증 확인 API (Step 3)
+  // 사용자가 문자를 발송했는지 OCTOMO API로 확인
+  static Future<Map<String, dynamic>> octomoVerifyCode({required String phone}) async {
     try {
       final response = await http.post(
         Uri.parse('$baseUrl/verify-code/'),
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'phone': phone, 'code': code}),
+        body: jsonEncode({'phone': phone}),
       );
-      if (response.statusCode == 200) return {'success': true};
-      final data = jsonDecode(response.body);
-      return {'success': false, 'message': data['message'] ?? '인증번호가 틀립니다.'};
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(utf8.decode(response.bodyBytes));
+        return {
+          'success': true,
+          'verified': data['verified'] ?? true,
+          'message': data['message'] ?? '본인인증이 완료되었습니다.'
+        };
+      } else {
+        final data = jsonDecode(utf8.decode(response.bodyBytes));
+        return {
+          'success': false,
+          'verified': false,
+          'message': data['message'] ?? '인증 확인에 실패했습니다.'
+        };
+      }
     } catch (e) {
-      return {'success': false, 'message': '서버 연결 오류'};
+      return {'success': false, 'verified': false, 'message': '서버 연결 오류: $e'};
     }
   }
 

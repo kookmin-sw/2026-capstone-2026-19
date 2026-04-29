@@ -1,6 +1,14 @@
+import random
+import requests
+import os
+from django.core.cache import cache
+from django.utils import timezone
+from datetime import timedelta
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.parsers import MultiPartParser, FormParser
 from django.contrib.auth import authenticate
 from .models import User, WithdrawalBlock
 from .serializers import SignUpSerializer
@@ -42,15 +50,115 @@ class LoginView(APIView):
             }, status=status.HTTP_401_UNAUTHORIZED)
 
 
-# --- SendCodeView, VerifyCodeView는 기존과 동일하게 유지 ---
-class SendCodeView(APIView):
+# --- OCTOMO 역발상 인증 (사용자가 서버 번호로 문자 발송) ---
+class IssueCodeView(APIView):
+    """
+    [Step 1] 6자리 인증 코드를 생성하고 캐시에 저장합니다.
+    수신 번호(1666-3538)와 인증 코드를 응답으로 반환합니다.
+    """
     def post(self, request):
-        print(f"인증번호 발송 요청: {request.data.get('phone')}")
-        return Response({'success': True})
+        phone_number = request.data.get('phone')
+        if not phone_number:
+            return Response({
+                'success': False,
+                'message': '휴대폰 번호를 입력해주세요.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # 6자리 랜덤 숫자 코드 생성
+        verification_code = ''.join([str(random.randint(0, 9)) for _ in range(6)])
+
+        # Django 캐시에 5분(300초)간 저장
+        cache_key = f"octomo_verification:{phone_number}"
+        cache.set(cache_key, verification_code, timeout=300)
+
+        return Response({
+            'success': True,
+            'receiver_number': '16663538',  # 수신 번호 (1666-3538에서 하이픈 제거)
+            'receiver_display': '1666-3538',  # 화면 표시용
+            'verification_code': verification_code,
+            'expires_in': 300  # 5분 (초)
+        }, status=status.HTTP_200_OK)
+
 
 class VerifyCodeView(APIView):
+    """
+    [Step 3] 사용자가 문자를 발송했는지 OCTOMO API로 확인합니다.
+    """
     def post(self, request):
-        return Response({'success': True})
+        phone_number = request.data.get('phone')
+
+        if not phone_number:
+            return Response({
+                'success': False,
+                'message': '휴대폰 번호를 입력해주세요.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # 캐시에서 인증 코드 조회
+        cache_key = f"octomo_verification:{phone_number}"
+        stored_code = cache.get(cache_key)
+
+        if not stored_code:
+            return Response({
+                'success': False,
+                'message': '인증 코드가 만료되었거나 존재하지 않습니다. 다시 요청해주세요.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # OCTOMO API 호출하여 문자 수신 여부 확인
+        octomo_api_key = os.environ.get('OCTOMO_API_KEY')
+        if not octomo_api_key:
+            return Response({
+                'success': False,
+                'message': '서버 설정 오류: OCTOMO API 키가 설정되지 않았습니다.'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        try:
+            response = requests.post(
+                'https://api.octoverse.kr/octomo/v1/public/message/exists',
+                headers={
+                    'Authorization': f'Octomo {octomo_api_key}',
+                    'Content-Type': 'application/json'
+                },
+                json={
+                    'mobileNum': phone_number,
+                    'text': stored_code
+                },
+                timeout=10
+            )
+
+            if response.status_code != 200:
+                return Response({
+                    'success': False,
+                    'message': f'OCTOMO API 오류 (상태 코드: {response.status_code})'
+                }, status=status.HTTP_502_BAD_GATEWAY)
+
+            result = response.json()
+
+            if result.get('exists') is True:
+                # 인증 성공 - 캐시에서 코드 삭제
+                cache.delete(cache_key)
+                return Response({
+                    'success': True,
+                    'message': '본인인증이 완료되었습니다.',
+                    'verified': True
+                }, status=status.HTTP_200_OK)
+            else:
+                return Response({
+                    'success': False,
+                    'message': '인증 문자가 확인되지 않았습니다. 1666-3538로 인증 코드를 보냈는지 확인해주세요.',
+                    'verified': False
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+        except requests.exceptions.Timeout:
+            return Response({
+                'success': False,
+                'message': 'OCTOMO API 요청 시간이 초과되었습니다. 다시 시도해주세요.'
+            }, status=status.HTTP_504_GATEWAY_TIMEOUT)
+
+        except requests.exceptions.RequestException as e:
+            return Response({
+                'success': False,
+                'message': f'OCTOMO API 연결 오류: {str(e)}'
+            }, status=status.HTTP_502_BAD_GATEWAY)
 
 
 class ProfileImageUpdateView(APIView):

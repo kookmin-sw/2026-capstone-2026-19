@@ -1,12 +1,11 @@
 from django.urls import path
-# views.py에서 실제로 만든 4개의 클래스만 가져옵니다.
-from .views import SignupView, LoginView, SendCodeView, VerifyCodeView
+from .views import SignupView, LoginView, IssueCodeView, VerifyCodeView
 from . import views
 
 urlpatterns = [
-    # 1. 회원가입 및 본인인증 관련
+    # 1. 회원가입 및 OCTOMO 본인인증 관련
     path('signup/', SignupView.as_view(), name='signup'),
-    path('send-code/', SendCodeView.as_view(), name='send_code'),
+    path('issue-code/', IssueCodeView.as_view(), name='issue_code'),
     path('verify-code/', VerifyCodeView.as_view(), name='verify_code'),
     path('profile/image/', views.ProfileImageUpdateView.as_view(), name='update-profile-image'),
     path('history/', views.TripHistoryView.as_view(), name='trip-history'),
