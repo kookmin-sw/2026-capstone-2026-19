@@ -16,6 +16,8 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include  # 1. include를 여기에 꼭 추가해야 합니다!
+from django.conf import settings
+from django.conf.urls.static import static
 
 urlpatterns = [
     # 2. admin.site.view가 아니라 admin.site.urls가 맞습니다.
@@ -28,6 +30,7 @@ urlpatterns = [
     path('api/moderation/', include('moderation.urls')),
     path('/chat/rooms/', include('chat.urls')),
     path('/api/trips/{tripId}/join/', include('trips.urls')),
-
-
 ]
+
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

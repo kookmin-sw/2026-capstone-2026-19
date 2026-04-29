@@ -32,3 +32,10 @@ class ChatRoomListCreateView(APIView):
             # DB 수정(participants 필드)을 안 하므로, 여기서는 그냥 방만 만듭니다.
             return Response({"id": chat_room.id}, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+class ChatRoomCreateView(APIView):
+    def post(self, request):
+        return Response(
+            {"message": "Chat room create endpoint is temporarily available."},
+            status=status.HTTP_201_CREATED,
+        )
