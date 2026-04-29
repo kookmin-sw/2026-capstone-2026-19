@@ -5,10 +5,14 @@ from .views import (
     TripPaymentChannelDetailView,
     TripReceiptCreateView,
     TripReceiptDetailView,
+    ReceiptAnalyzeOCRView,
+    ReceiptConfirmAmountView,
     TripSettlementCreateView,
     TripSettlementListView,
     MyPaySettlementListView,
     MyReceiveSettlementListView,
+    SettlementDetailView,
+    SettlementLinkOpenView,
     SettlementPaySelfView,
     SettlementProofCreateView,
     SettlementConfirmView,
@@ -21,13 +25,16 @@ urlpatterns = [
 
     path("trips/<int:trip_id>/receipt/", TripReceiptCreateView.as_view(), name="trip-receipt-create"),
     path("trips/<int:trip_id>/receipt/detail/", TripReceiptDetailView.as_view(), name="trip-receipt-detail"),
+    path("receipts/<int:receipt_id>/analyze/", ReceiptAnalyzeOCRView.as_view(), name="receipt-analyze-ocr"),
+    path("receipts/<int:receipt_id>/confirm-amount/", ReceiptConfirmAmountView.as_view(), name="receipt-confirm-amount"),
 
     path("trips/<int:trip_id>/settlements/create/", TripSettlementCreateView.as_view(), name="trip-settlement-create"),
     path("trips/<int:trip_id>/settlements/", TripSettlementListView.as_view(), name="trip-settlement-list"),
 
     path("me/settlements/pay/", MyPaySettlementListView.as_view(), name="my-pay-settlement-list"),
     path("me/settlements/receive/", MyReceiveSettlementListView.as_view(), name="my-receive-settlement-list"),
-
+    path("settlements/<int:settlement_id>/", SettlementDetailView.as_view(), name="settlement-detail"),
+    path("settlements/<int:settlement_id>/open-link/", SettlementLinkOpenView.as_view(), name="settlement-open-link"),
     path("settlements/<int:settlement_id>/pay-self/", SettlementPaySelfView.as_view(), name="settlement-pay-self"),
     path("settlements/<int:settlement_id>/proof/", SettlementProofCreateView.as_view(), name="settlement-proof-create"),
     path("settlements/<int:settlement_id>/confirm/", SettlementConfirmView.as_view(), name="settlement-confirm"),
