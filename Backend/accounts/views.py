@@ -5,6 +5,10 @@ from django.contrib.auth import authenticate
 from .models import User, WithdrawalBlock
 from .serializers import SignUpSerializer
 from trips.models import TripParticipant
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.parsers import MultiPartParser, FormParser
+from django.utils import timezone
+from datetime import timedelta
 
 class SignupView(APIView):
     def post(self, request):

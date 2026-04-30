@@ -4,5 +4,5 @@ from . import consumers
 
 websocket_urlpatterns = [
     # ws://서버주소/ws/chat/<trip_id>/ 경로로 들어오는 연결을 ChatConsumer에 연결
-    re_path(r'ws/chat/(?P<trip_id>\d+)/$', consumers.ChatConsumer.as_view()),
+    re_path(r'ws/chat/(?P<trip_id>\d+)/$', consumers.ChatConsumer.as_asgi()),
 ]
