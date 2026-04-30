@@ -7,7 +7,6 @@ import 'package:image_picker/image_picker.dart';
 import '../auth/login_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../utils/colors.dart';
-import '../../service/auth_service.dart';
 
 class MyPageTab extends StatefulWidget {
   const MyPageTab({super.key});
@@ -21,7 +20,7 @@ class _MyPageTabState extends State<MyPageTab> {
   final ImagePicker _picker = ImagePicker();
 
   late final List<_MenuItem> _menus = [
-    // 프로필 관리
+    _MenuItem(icon: Icons.verified_user_outlined,  label: '인증 관리',        sub: '본인 및 신원 인증',    screen: const _AuthScreen()),
     _MenuItem(icon: Icons.star_outline,            label: '회원 매너 점수 관리', sub: '현재 4.8점',         screen: const _MannerScreen()),
     _MenuItem(icon: Icons.local_taxi_outlined,     label: '이용 내역',         sub: '총 12건',              screen: const HistoryScreen()),
     _MenuItem(icon: Icons.settings_outlined,       label: '설정',              sub: '알림, 약관, 버전 정보', screen: const SettingsScreen()),
@@ -30,7 +29,6 @@ class _MyPageTabState extends State<MyPageTab> {
     _MenuItem(icon: Icons.logout,                  label: '로그아웃',          sub: null, screen: null, color: AppColors.red),
   ];
 
-  // 프로필 이미지 선택 바
   void _showImagePickerSheet() {
     showModalBottomSheet(
       context: context,
@@ -44,7 +42,6 @@ class _MyPageTabState extends State<MyPageTab> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // 핸들 바
               Container(
                 width: 40, height: 4,
                 margin: const EdgeInsets.only(bottom: 20),
@@ -61,7 +58,6 @@ class _MyPageTabState extends State<MyPageTab> {
                 ),
               ),
               const SizedBox(height: 16),
-              // 갤러리 선택
               ListTile(
                 contentPadding: EdgeInsets.zero,
                 leading: Container(
@@ -74,7 +70,6 @@ class _MyPageTabState extends State<MyPageTab> {
                 onTap: () { Navigator.pop(context); _pickImage(ImageSource.gallery); },
               ),
               const Divider(color: AppColors.border, height: 1),
-              // 카메라 촬영
               ListTile(
                 contentPadding: EdgeInsets.zero,
                 leading: Container(
@@ -86,7 +81,6 @@ class _MyPageTabState extends State<MyPageTab> {
                 subtitle: const Text('지금 바로 사진을 촬영합니다', style: TextStyle(fontSize: 11, color: AppColors.gray)),
                 onTap: () { Navigator.pop(context); _pickImage(ImageSource.camera); },
               ),
-              // 사진 삭제 (기존 사진이 있을 때만 표시)
               if (_profileImage != null) ...[
                 const Divider(color: AppColors.border, height: 1),
                 ListTile(
@@ -114,21 +108,20 @@ class _MyPageTabState extends State<MyPageTab> {
     );
   }
 
-  // 추가: 실제 이미지 선택 처리 + API 업로드
   Future<void> _pickImage(ImageSource source) async {
     try {
       final XFile? picked = await _picker.pickImage(
         source: source,
-        imageQuality: 80,     // 이미지 압축 품질 (0~100)
-        maxWidth: 512,        // 최대 가로 크기 (px)
-        maxHeight: 512,       // 최대 세로 크기 (px)
+        imageQuality: 80,
+        maxWidth: 512,
+        maxHeight: 512,
       );
       if (picked != null) {
         setState(() => _profileImage = File(picked.path));
 
-        // 프로필 사진 서버에 업데이트
         try {
-          await AuthService.updateProfile(profileImgUrl: picked.path);
+          // AuthService 호출 대신 딜레이로 업로드 효과 시뮬레이션
+          await Future.delayed(const Duration(milliseconds: 600));
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('프로필 사진이 업데이트되었습니다.')),
@@ -143,7 +136,6 @@ class _MyPageTabState extends State<MyPageTab> {
         }
       }
     } catch (e) {
-      // 권한 거부 등 예외 처리
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -183,14 +175,10 @@ class _MyPageTabState extends State<MyPageTab> {
       padding: const EdgeInsets.fromLTRB(20, 32, 20, 24),
       child: Column(
         children: [
-          // ─────────────────────────────────────────────
-          // ← 변경: GestureDetector로 프로필 전체 영역 탭 감지
-          // ─────────────────────────────────────────────
           GestureDetector(
             onTap: _showImagePickerSheet,
             child: Stack(
               children: [
-                // 프로필 이미지
                 Container(
                   width: 84, height: 84,
                   decoration: BoxDecoration(
@@ -200,13 +188,10 @@ class _MyPageTabState extends State<MyPageTab> {
                   ),
                   child: ClipOval(
                     child: _profileImage != null
-                    // ← 선택된 이미지가 있으면 표시
                         ? Image.file(_profileImage!, fit: BoxFit.cover)
-                    // ← 없으면 기본 아이콘
                         : const Icon(Icons.person, color: AppColors.gray, size: 48),
                   ),
                 ),
-                // 카메라 버튼
                 Positioned(
                   bottom: 0, right: 0,
                   child: Container(
@@ -222,7 +207,6 @@ class _MyPageTabState extends State<MyPageTab> {
               ],
             ),
           ),
-          // ─────────────────────────────────────────────
           const SizedBox(height: 14),
           const Text('홍길동', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: AppColors.secondary)),
           const SizedBox(height: 4),
@@ -314,7 +298,8 @@ class _MyPageTabState extends State<MyPageTab> {
             onPressed: () async {
               Navigator.pop(context);
               try {
-                await AuthService.logout();
+                // AuthService 호출 대신 딜레이로 로그아웃 효과 시뮬레이션
+                await Future.delayed(const Duration(milliseconds: 500));
                 if (context.mounted) {
                   Navigator.pushAndRemoveUntil(
                     context,
@@ -342,7 +327,7 @@ class _MenuItem {
 }
 
 // ============================================================
-// 이용 내역 화면 - API 연동
+// 이용 내역 화면
 // ============================================================
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
@@ -364,9 +349,17 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   Future<void> _fetchHistory() async {
     try {
-      final history = await AuthService.getTripHistory();
+      // 더미 데이터 생성
+      await Future.delayed(const Duration(milliseconds: 800));
+      final history = [
+        {'date':'2024.12.20','team':'강남→김포 동승팀', 'dept':'강남역 2번출구','dest':'김포공항', 'members':4,'total':'18,400','my':'4,600', 'status':'완료'},
+        {'date':'2024.12.15','team':'홍대→인천공항 팀', 'dept':'홍대입구역', 'dest':'인천공항 T1','members':3,'total':'34,200','my':'11,400','status':'완료'},
+        {'date':'2024.12.10','team':'잠실→강남 3인팀', 'dept':'잠실역 8번', 'dest':'강남역', 'members':3,'total':'12,600','my':'4,200', 'status':'완료'},
+        {'date':'2024.11.28','team':'신촌→판교 팀', 'dept':'신촌역', 'dest':'판교역', 'members':2,'total':'28,000','my':'14,000','status':'완료'},
+      ];
+
       setState(() {
-        _histories = List<Map<String, dynamic>>.from(history);
+        _histories = history;
         _isLoading = false;
       });
     } catch (e) {
@@ -468,7 +461,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
 }
 
 // ============================================================
-// 설정 화면 (변경 없음)
+// 설정 화면
 // ============================================================
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -592,10 +585,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onPressed: () async {
               Navigator.pop(context);
               try {
-                final result = await AuthService.withdraw(reason: '사용자 탈퇴');
+                // 더미 결과 처리
+                await Future.delayed(const Duration(milliseconds: 800));
+                final result = {'success': true, 'is_blocked': true, 'message': '탈퇴가 완료되었습니다.'};
 
                 if (context.mounted) {
-                  // is_blocked가 true면 1년 재가입 제한 메시지
                   if (result['is_blocked'] == true) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
@@ -605,11 +599,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     );
                   } else {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(result['message'] ?? '탈퇴가 완료되었습니다.')),
+                      SnackBar(content: Text(result['message'] as String? ?? '탈퇴가 완료되었습니다.')),
                     );
                   }
 
-                  // 로그인 화면으로 이동
                   Navigator.pushAndRemoveUntil(
                     context,
                     MaterialPageRoute(builder: (_) => const LoginScreen()),
@@ -631,7 +624,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 }
 
 // ============================================================
-// 고객지원 화면 (변경 없음)
+// 고객지원 화면
 // ============================================================
 class SupportScreen extends StatelessWidget {
   const SupportScreen({super.key});
@@ -731,9 +724,6 @@ class SupportScreen extends StatelessWidget {
   }
 }
 
-// ============================================================
-// 서브화면 공통 헬퍼 (변경 없음)
-// ============================================================
 AppBar _appBar(String title) => AppBar(
   title: Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
   backgroundColor: Colors.white, foregroundColor: AppColors.secondary,
@@ -759,9 +749,10 @@ class _SubScreen extends StatelessWidget {
   );
 }
 
+class _AuthScreen   extends StatelessWidget { const _AuthScreen();   @override Widget build(_) => const _SubScreen(title: '인증 관리', icon: '🛡️'); }
 
 // ============================================================
-// 매너 로그 화면 - TrustScoreLog 데이터 연동
+// 매너 로그 화면
 // ============================================================
 class _MannerScreen extends StatefulWidget {
   const _MannerScreen();
@@ -783,9 +774,17 @@ class _MannerScreenState extends State<_MannerScreen> {
 
   Future<void> _fetchMannerLogs() async {
     try {
-      final logs = await AuthService.getTrustScoreLogs();
+      // 더미 데이터
+      await Future.delayed(const Duration(milliseconds: 800));
+      final logs = [
+        {'event_type': 'TRIP_PARTICIPATION_COMPLETED', 'direction': 'GAIN', 'applied_delta': '+2.5', 'score_after': '42.0', 'reason_detail': '동승 완료 - 정산 완료', 'created_at': '2024-12-20T14:30:00'},
+        {'event_type': 'FAST_SETTLEMENT', 'direction': 'GAIN', 'applied_delta': '+1.0', 'score_after': '39.5', 'reason_detail': '빠른 정산 보너스', 'created_at': '2024-12-18T09:15:00'},
+        {'event_type': 'NORMAL_CANCEL', 'direction': 'PENALTY', 'applied_delta': '-1.0', 'score_after': '38.5', 'reason_detail': '출발 10분 전 취소', 'created_at': '2024-12-15T16:20:00'},
+        {'event_type': 'STREAK_BONUS', 'direction': 'GAIN', 'applied_delta': '+0.5', 'score_after': '39.5', 'reason_detail': '연속 성공 보너스', 'created_at': '2024-12-10T11:00:00'},
+      ];
+
       setState(() {
-        _logs = List<Map<String, dynamic>>.from(logs);
+        _logs = logs;
         _isLoading = false;
       });
     } catch (e) {
@@ -890,7 +889,6 @@ class _MannerScreenState extends State<_MannerScreen> {
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -978,7 +976,7 @@ class _MannerScreenState extends State<_MannerScreen> {
 }
 
 // ============================================================
-// 신고 화면 - 최근 동승자 조회 및 신고 API 연동
+// 신고 화면
 // ============================================================
 class _ReportScreen extends StatefulWidget {
   const _ReportScreen();
@@ -987,7 +985,6 @@ class _ReportScreen extends StatefulWidget {
   State<_ReportScreen> createState() => _ReportScreenState();
 }
 
-// 최근 동승자 데이터 모델
 class _RecentPassenger {
   final String id;
   final String nickname;
@@ -1009,11 +1006,9 @@ class _ReportScreenState extends State<_ReportScreen> {
   bool _isLoading = true;
   String? _error;
 
-  // 신고 사유 선택값
   String _selectedReason = '노쇼';
   final TextEditingController _detailController = TextEditingController();
 
-  // 신고 사유 목록
   final List<String> _reportReasons = ['노쇼', '비매너 행위', '무단 이탈', '기타'];
 
   @override
@@ -1028,10 +1023,17 @@ class _ReportScreenState extends State<_ReportScreen> {
     super.dispose();
   }
 
-  // 최근 동승자 목록 조회
   Future<void> _fetchRecentCompanions() async {
     try {
-      final companions = await AuthService.getRecentCompanions();
+      // 더미 데이터
+      await Future.delayed(const Duration(milliseconds: 800));
+      final companions = [
+        {'id': 'user_001', 'nickname': '@taxi_kim', 'ride_date': '오늘 14:30', 'route': '강남역 → 김포공항'},
+        {'id': 'user_002', 'nickname': '@seoul_lee', 'ride_date': '어제 15:00', 'route': '홍대입구역 → 인천공항 T1'},
+        {'id': 'user_003', 'nickname': '@rider_park', 'ride_date': '3일 전 14:45', 'route': '잠실역 → 강남역'},
+        {'id': 'user_004', 'nickname': '@go_choi', 'ride_date': '1주일 전 16:00', 'route': '신촌역 → 판교역'},
+      ];
+
       setState(() {
         _recentPassengers = companions.map((c) => _RecentPassenger(
           id: c['id'] ?? '',
@@ -1049,17 +1051,11 @@ class _ReportScreenState extends State<_ReportScreen> {
     }
   }
 
-  // 신고 제출
   Future<void> _submitReport(String reportedUserId, String tripId) async {
-    await AuthService.reportUser(
-      targetId: reportedUserId,
-      tripId: tripId,
-      reason: _selectedReason,
-      detail: _detailController.text,
-    );
+    // API 호출 대신 딜레이
+    await Future.delayed(const Duration(seconds: 1));
   }
 
-  // 신고 폼 바텀 시트 표시
   void _showReportBottomSheet(_RecentPassenger passenger) {
     _selectedReason = '노쇼';
     _detailController.clear();
