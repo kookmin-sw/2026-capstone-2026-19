@@ -30,6 +30,7 @@ urlpatterns = [
     path('api/moderation/', include('moderation.urls')),
     path('/chat/rooms/', include('chat.urls')),
     path('/api/trips/{tripId}/join/', include('trips.urls')),
+    path('api/settlements/', include('settlements.urls')),
 ]
 
 if settings.DEBUG:

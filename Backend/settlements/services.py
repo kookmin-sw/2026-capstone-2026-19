@@ -241,7 +241,7 @@ def mark_settlement_paid_self(*, settlement: Settlement, user):
     if settlement.payer_user_id != user.id:
         raise PermissionDenied("본인 정산만 송금 완료 처리할 수 있습니다.")
 
-    if settlement.status != "REQUEST":
+    if settlement.status not in ["REQUEST", "LINK_OPENED"]:
         raise ValidationError("현재 송금 완료 처리할 수 없는 상태입니다.")
 
     settlement.status = "PAID_SELF"
