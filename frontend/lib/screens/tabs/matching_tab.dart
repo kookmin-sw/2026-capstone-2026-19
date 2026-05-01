@@ -6,6 +6,7 @@ import 'package:flutter/cupertino.dart';
 import '../../utils/colors.dart';
 import '../location_search_screen.dart';
 import 'home_tab.dart' as home;
+import 'active_tab.dart';
 import '../../service/trip_service.dart';
 
 // 매칭 탭 전체 레이아웃 (내부 상태 변경 시 화면 리빌드)
@@ -1151,13 +1152,13 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
               onPressed: () { Navigator.pop(context); // 1. 다이얼로그 닫기
 
                 // 2. 참여 화면(RideJoinScreen)을 닫고 바로 채팅방 화면으로 이동!
-                // (ChatRoomScreen은 채팅 UI가 구현될 새로운 파일/클래스 이름이라고 가정)
                 Navigator.pushReplacement(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => ChatRoomScreen(
-                      tripId: widget.pin['id'], // ✨ 가장 중요한 tripId 전달
+                    builder: (_) => ActiveTabChatBridge(
                       hostId: widget.pin['hostId'],
+                      dept: widget.pin['dept'],
+                      dest: widget.pin['dest'],
                     ),
                   ),
                 );
