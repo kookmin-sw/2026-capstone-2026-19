@@ -2,14 +2,14 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class AuthService {
-  // 에뮬레이터 기준 localhost 주소. 실기기 테스트 시 192.168.x.x (PC의 IP)로 변경해야 합니다.
-  static const String baseUrl = 'http://3.35.37.129:8000/api/accounts';
+  // 에뮬레이터 기준 localhost 주소 (10.0.2.2). 실기기 테스트 시 192.168.x.x (PC의 IP)로 변경해야 합니다.
+  static const String baseUrl = 'http://10.0.2.2:8000/api/accounts';
 
   // ============================================================
   // [실제 통신] 백엔드(Django)와 연결된 API
   // ============================================================
 
-  // 1. 인증번호 전송 API
+  // 1. 옥토모 역발상 인증 - 6자리 코드 발급 API
   static Future<Map<String, dynamic>> sendVerificationCode({required String phone}) async {
     try {
       final response = await http.post(
@@ -17,25 +17,46 @@ class AuthService {
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'phone': phone}),
       );
-      return {'success': response.statusCode == 200};
+      
+      if (response.statusCode == 200) {
+        final data = jsonDecode(utf8.decode(response.bodyBytes));
+        return {
+          'success': true,
+          'code': data['code'],
+          'octomoNumber': data['octomoNumber'] ?? '1666-3538',
+          'message': data['message'],
+        };
+      }
+      
+      final data = jsonDecode(utf8.decode(response.bodyBytes));
+      return {'success': false, 'message': data['message'] ?? '코드 발급 실패'};
     } catch (e) {
-      return {'success': false, 'message': '서버 연결 오류'};
+      return {'success': false, 'message': '서버 연결 오류가 발생했습니다. 네트워크 상태를 확인해주세요.'};
     }
   }
 
-  // 2. 인증번호 확인 API
-  static Future<Map<String, dynamic>> verifyCode({required String phone, required String code}) async {
+  // 2. 옥토모 역발상 인증 - SMS 발송 여부 확인 API
+  static Future<Map<String, dynamic>> verifyCode({required String phone}) async {
     try {
       final response = await http.post(
         Uri.parse('$baseUrl/verify-code/'),
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'phone': phone, 'code': code}),
+        body: jsonEncode({'phone': phone}),
       );
-      if (response.statusCode == 200) return {'success': true};
-      final data = jsonDecode(response.body);
-      return {'success': false, 'message': data['message'] ?? '인증번호가 틀립니다.'};
+      
+      final data = jsonDecode(utf8.decode(response.bodyBytes));
+      
+      if (response.statusCode == 200 && data['verified'] == true) {
+        return {'success': true, 'verified': true, 'message': data['message'] ?? '인증 완료'};
+      }
+      
+      return {
+        'success': false,
+        'verified': false,
+        'message': data['message'] ?? '인증 확인 실패'
+      };
     } catch (e) {
-      return {'success': false, 'message': '서버 연결 오류'};
+      return {'success': false, 'verified': false, 'message': '서버 연결 오류가 발생했습니다. 네트워크 상태를 확인해주세요.'};
     }
   }
 
@@ -67,7 +88,7 @@ class AuthService {
         return {'success': false, 'message': data['message'] ?? '회원가입 실패'};
       }
     } catch (e) {
-      return {'success': false, 'message': '서버 연결 오류'};
+      return {'success': false, 'message': '서버 연결 오류가 발생했습니다. 네트워크 상태를 확인해주세요.'};
     }
   }
 
@@ -101,7 +122,7 @@ class AuthService {
         };
       }
     } catch (e) {
-      return {'success': false, 'message': '서버 연결 실패: $e'};
+      return {'success': false, 'message': '서버 연결 오류가 발생했습니다. 네트워크 상태를 확인해주세요.'};
     }
   }
 

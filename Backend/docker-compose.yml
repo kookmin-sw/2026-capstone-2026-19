@@ -24,6 +24,8 @@ services:
     environment:
       - DB_HOST=db       # 장고가 DB를 찾을 때 쓸 주소
       - REDIS_HOST=redis # 장고가 Redis를 찾을 때 쓸 주소
+    env_file:
+      - .env
     depends_on:
       - db
       - redis # DB와 Redis가 먼저 켜진 다음에 장고를 켭니다.

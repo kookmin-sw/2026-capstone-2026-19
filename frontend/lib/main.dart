@@ -23,7 +23,7 @@ void main() async {
   // 카카오맵 SDK 초기화 (웹에서는 제외)
   if (!kIsWeb) {
     AuthRepository.initialize(
-      appKey: '2c89ba1eee07b01fbfb0d1ca3220eff2',
+      appKey: 'ab5f9937336b573d4e68ad90b988bd9c',
       baseUrl: '',
     );
   }

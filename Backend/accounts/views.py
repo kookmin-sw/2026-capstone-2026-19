@@ -1,14 +1,62 @@
+import os
+import random
+import requests
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from django.contrib.auth import authenticate
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
 from .models import User, WithdrawalBlock
 from .serializers import SignUpSerializer
 from trips.models import TripParticipant
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.utils import timezone
 from datetime import timedelta
+
+# 옥토모 역발상 인증 설정 (.env 파일에서 로드)
+OCTOMO_API_KEY = os.getenv('OCTOMO_API_KEY', '')
+OCTOMO_API_URL = 'https://api.octoverse.kr/octomo/v1/public/message/exists'
+OCTOMO_PHONE_NUMBER = '1666-3538'
+
+# 인증 코드 저장소 (메모리 기반, TTL 5분)
+class CodeStore:
+    def __init__(self):
+        self._store = {}
+        self._ttl_seconds = 300  # 5분
+    
+    def set(self, phone_number: str, code: str):
+        """코드 저장 with TTL"""
+        self._store[phone_number] = {
+            'code': code,
+            'created_at': timezone.now()
+        }
+    
+    def get(self, phone_number: str) -> str | None:
+        """코드 조회 (만료 시 None 반환)"""
+        entry = self._store.get(phone_number)
+        if not entry:
+            return None
+        
+        # TTL 체크
+        if timezone.now() - entry['created_at'] > timedelta(seconds=self._ttl_seconds):
+            del self._store[phone_number]
+            return None
+        
+        return entry['code']
+    
+    def delete(self, phone_number: str):
+        """코드 삭제"""
+        if phone_number in self._store:
+            del self._store[phone_number]
+
+# 전역 코드 저장소 인스턴스
+_verification_code_store = CodeStore()
+
+def _generate_six_digit_code() -> str:
+    """6자리 랜덤 숫자 코드 생성"""
+    return str(random.randint(100000, 999999))
 
 class SignupView(APIView):
     def post(self, request):
@@ -47,14 +95,119 @@ class LoginView(APIView):
 
 
 # --- SendCodeView, VerifyCodeView는 기존과 동일하게 유지 ---
+@method_decorator(csrf_exempt, name='dispatch')
 class SendCodeView(APIView):
+    """옥토모 역발상 인증 - 6자리 코드 발급"""
+    authentication_classes = ()  # 인증 우회 (글로벌 인증 설정 무시)
+    permission_classes = [AllowAny]  # 누구나 접근 가능
     def post(self, request):
-        print(f"인증번호 발송 요청: {request.data.get('phone')}")
-        return Response({'success': True})
+        phone_number = request.data.get('phone', '').strip()
+        
+        if not phone_number or len(phone_number) < 10:
+            return Response(
+                {'success': False, 'message': '올바른 전화번호를 입력해주세요.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # 6자리 코드 생성 및 저장
+        code = _generate_six_digit_code()
+        _verification_code_store.set(phone_number, code)
+        
+        print(f"[옥토모 인증] 코드 발급: {phone_number} -> {code}")
+        
+        return Response({
+            'success': True,
+            'code': code,
+            'octomoNumber': OCTOMO_PHONE_NUMBER,
+            'message': f'{OCTOMO_PHONE_NUMBER}로 코드 {code}를 SMS 발송해주세요.'
+        })
 
+
+@method_decorator(csrf_exempt, name='dispatch')
 class VerifyCodeView(APIView):
+    """옥토모 역발상 인증 - SMS 발송 여부 확인"""
+    authentication_classes = ()  # 인증 우회 (글로벌 인증 설정 무시)
+    permission_classes = [AllowAny]  # 누구나 접근 가능
     def post(self, request):
-        return Response({'success': True})
+        phone_number = request.data.get('phone', '').strip()
+        
+        if not phone_number:
+            return Response(
+                {'success': False, 'verified': False, 'message': '전화번호가 필요합니다.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # 저장된 코드 조회
+        code = _verification_code_store.get(phone_number)
+        
+        if not code:
+            return Response(
+                {'success': False, 'verified': False, 'message': '인증 코드가 만료되었거나 존재하지 않습니다. 다시 시도해주세요.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            # OCTOMO_API_KEY 검증
+            if not OCTOMO_API_KEY:
+                print(f"[옥토모 API 키 오류] OCTOMO_API_KEY가 설정되지 않았습니다. .env 파일을 확인해주세요.")
+                return Response(
+                    {'success': False, 'verified': False, 'message': '인증 서버 설정 오류가 발생했습니다. 관리자에게 문의해주세요.'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+            
+            # 옥토모 API 호출하여 SMS 수신 여부 확인
+            headers = {
+                'Content-Type': 'application/json',
+                'Authorization': f'Octomo {OCTOMO_API_KEY}'
+            }
+            body = {
+                'mobileNum': phone_number,
+                'text': code
+            }
+            
+            print(f"[옥토모 API 요청] {phone_number}, code: {code}")
+            
+            response = requests.post(
+                OCTOMO_API_URL,
+                headers=headers,
+                json=body,
+                timeout=5
+            )
+            
+            if not response.ok:
+                error_msg = f"Octomo API error: {response.status_code}"
+                print(f"[옥토모 API 오류] {error_msg}")
+                return Response(
+                    {'success': False, 'verified': False, 'message': '인증 서버 오류가 발생했습니다.'},
+                    status=status.HTTP_502_BAD_GATEWAY
+                )
+            
+            data = response.json()
+            verified = data.get('verified', False) or data.get('exists', False)
+            
+            print(f"[옥토모 API 응답] verified: {verified}")
+            
+            if verified:
+                # 인증 성공 시 코드 삭제
+                _verification_code_store.delete(phone_number)
+                return Response({
+                    'success': True,
+                    'verified': True,
+                    'message': '전화번호 인증이 완료되었습니다.'
+                })
+            else:
+                return Response({
+                    'success': False,
+                    'verified': False,
+                    'message': '인증 메시지가 확인되지 않았습니다. 1666-3538로 코드를 정확히 발송했는지 확인해주세요.'
+                })
+                
+        except requests.exceptions.RequestException as e:
+            print(f"[옥토모 API 예외] {str(e)}")
+            return Response(
+                {'success': False, 'verified': False, 'message': '인증 서버 연결 오류가 발생했습니다.'},
+                status=status.HTTP_502_BAD_GATEWAY
+            )
 
 
 class ProfileImageUpdateView(APIView):
