@@ -1,10 +1,10 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../config/app_config.dart';
 
 class AuthService {
   // 에뮬레이터 기준 localhost 주소. 실기기 테스트 시 192.168.x.x (PC의 IP)로 변경해야 합니다.
-  static const String baseUrl = 'http://3.35.37.129:8000/api/accounts';
-
+  static String get baseUrl => '${AppConfig.apiBaseUrl}/api/accounts';
   // ============================================================
   // [실제 통신] 백엔드(Django)와 연결된 API
   // ============================================================

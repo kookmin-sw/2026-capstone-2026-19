@@ -1,7 +1,7 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.contrib.auth import authenticate
 from .models import User, WithdrawalBlock
@@ -9,6 +9,8 @@ from .serializers import SignUpSerializer
 from trips.models import TripParticipant
 
 class SignupView(APIView):
+    permission_classes = [AllowAny]
+    
     def post(self, request):
         # 2. View에 들어온 데이터를 Serializer(문지기)에게 넘겨줍니다. [연결 완료!]
         serializer = SignUpSerializer(data=request.data)
@@ -22,6 +24,8 @@ class SignupView(APIView):
         return Response({'success': False, 'message': serializer.errors})
 
 class LoginView(APIView):
+    permission_classes = [AllowAny]
+    
     def post(self, request):
         # Flutter에서 '아이디'를 username 키로 보냅니다.
         username = request.data.get('username')
@@ -46,11 +50,14 @@ class LoginView(APIView):
 
 # --- SendCodeView, VerifyCodeView는 기존과 동일하게 유지 ---
 class SendCodeView(APIView):
+    permission_classes = [AllowAny]
+    
     def post(self, request):
         print(f"인증번호 발송 요청: {request.data.get('phone')}")
         return Response({'success': True})
 
 class VerifyCodeView(APIView):
+    permission_classes = [AllowAny]
     def post(self, request):
         return Response({'success': True})
 
