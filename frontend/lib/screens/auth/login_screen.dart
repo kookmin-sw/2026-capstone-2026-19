@@ -2,6 +2,7 @@
 // lib/screens/auth/login_screen.dart
 // 로그인 화면 — 아이디 + 비밀번호
 // ============================================================
+import '../../service/auth_session.dart';
 import 'package:flutter/material.dart';
 import '../../utils/colors.dart';
 import '../../utils/routes.dart';
@@ -45,21 +46,43 @@ class _LoginScreenState extends State<LoginScreen> {
     final result = await AuthService.login(
      username: _idCtrl.text.trim(),
      password: _pwCtrl.text.trim(),
-  );
+    );
 
 
     setState(() => _isLoading = false);
 
-    if (result['success']) {
-    // 로그인 성공 시 메인으로
-    Navigator.pushReplacementNamed(context, AppRoutes.main);
-  } else {
-    // 로그인 실패 시 에러 메시지 띄우기
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(result['message']), backgroundColor: AppColors.red),
-    );
+    if (result['success'] == true) {
+      final token = result['token']?.toString() ?? '';
+      final username = result['username']?.toString() ?? '';
+
+      if (token.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('로그인 토큰을 받지 못했습니다.'),
+            backgroundColor: AppColors.red,
+          ),
+        );
+        return;
+      }
+
+      AuthSession.save(
+        newToken: token,
+        newUsername: username,
+      );
+
+      if (!mounted) return;
+      Navigator.pushReplacementNamed(context, AppRoutes.main);
+    } else {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result['message']?.toString() ?? '로그인에 실패했습니다.'),
+          backgroundColor: AppColors.red,
+        ),
+      );
+    }
   }
-}
   @override
   Widget build(BuildContext context) {
     return Scaffold(

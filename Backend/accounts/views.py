@@ -7,6 +7,7 @@ from django.contrib.auth import authenticate
 from .models import User, WithdrawalBlock
 from .serializers import SignUpSerializer
 from trips.models import TripParticipant
+from rest_framework.authtoken.models import Token
 
 class SignupView(APIView):
     permission_classes = [AllowAny]
@@ -36,10 +37,12 @@ class LoginView(APIView):
         user = authenticate(username=username, password=password)
 
         if user is not None:
+            token, created = Token.objects.get_or_create(user=user)
+
             return Response({
                 'success': True,
-                'token': 'this-is-a-fake-test-token-12345',
-                'username': user.username  # 로그인한 유저의 아이디 반환
+                'token': token.key,
+                'username': user.username,
             }, status=status.HTTP_200_OK)
         else:
             return Response({

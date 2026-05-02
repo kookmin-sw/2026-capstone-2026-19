@@ -1,11 +1,11 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'package:intl/intl.dart';
+import '../config/app_config.dart';
 
 class TripService {
   // 프로젝트 전체에서 공통으로 사용할 베이스 주소
-  static const String serverUrl = 'http://3.35.37.129:8000';
-  static const String tripApiUrl = '$serverUrl/api/trips';
+  static String get serverUrl => AppConfig.apiBaseUrl;
+  static String get tripApiUrl => '$serverUrl/api/trips';
 
   // 1. 핀 생성 API
   static Future<Map<String, dynamic>> createTrip({

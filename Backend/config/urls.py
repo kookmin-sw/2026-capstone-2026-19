@@ -28,8 +28,8 @@ urlpatterns = [
     path('api/trips/', include('trips.urls')),
     path('api/users/', include('accounts.urls')),
     path('api/moderation/', include('moderation.urls')),
-    path('/chat/rooms/', include('chat.urls')),
-    path('/api/trips/{tripId}/join/', include('trips.urls')),
+    path('', include('chat.urls')),
+    #path('/api/trips/{tripId}/join/', include('trips.urls')),
     path('api/settlements/', include('settlements.urls')),
 ]
 

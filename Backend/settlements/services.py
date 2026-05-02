@@ -70,13 +70,14 @@ def extract_total_amount_from_text(raw_text: str):
 def run_ocr_for_receipt(receipt: Receipt) -> str:
     """
     실제 OCR API 연동 위치.
-    지금은 구조만 먼저 만들고, 이후 Naver Clova OCR 또는 Google Vision OCR로 교체한다.
+    지금은 구조만 먼저 만들고 임시 OCR 결과를 반환한다.
+    이후 Naver Clova OCR 또는 Google Vision OCR로 교체한다.
     """
     # TODO: OCR API 연동
-    # 임시 테스트용으로는 아래처럼 문자열을 반환해서 흐름을 확인할 수 있음.
+    # 임시 테스트용으로는 아래처럼 문자열을 반  환해서 흐름을 확인할 수 있음.
     # return "결제금액 18400원"
 
-    return ""
+    return "카카오 T 택시 이용내역 결제금액 18,400원"
 
 
 @transaction.atomic

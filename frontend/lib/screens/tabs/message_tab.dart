@@ -1,12 +1,15 @@
+import '../../service/auth_session.dart';
 import 'dart:convert';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../utils/colors.dart';
-import 'active_tab.dart';
+//import 'active_tab.dart';
 import '../../service/trip_service.dart';
+import '../../service/settlement_service.dart';
+import '../../config/app_config.dart';
 
 // ── 채팅방 모델 ──────────────────────────────────
 class ChatRoomModel {
@@ -60,6 +63,63 @@ class _Message {
   });
 }
 
+class SettlementMessage {
+  final int settlementId;
+  final int totalAmount;
+  final int shareAmount;
+  final String? receiptImageUrl;
+  final String? paymentLink;
+  final String status;
+
+  const SettlementMessage({
+    required this.settlementId,
+    required this.totalAmount,
+    required this.shareAmount,
+    this.receiptImageUrl,
+    this.paymentLink,
+    required this.status,
+  });
+
+  factory SettlementMessage.fromJson(Map<String, dynamic> json) {
+    String? channelLink;
+
+    final paymentChannel = json['payment_channel'];
+    if (paymentChannel is Map) {
+      final paymentChannelMap = Map<String, dynamic>.from(paymentChannel);
+      channelLink = paymentChannelMap['kakaopay_link']?.toString()
+          ?? paymentChannelMap['payment_link']?.toString();
+    }
+
+    return SettlementMessage(
+      settlementId: _toInt(json['settlement_id'] ?? json['id']),
+      totalAmount: _toInt(json['total_amount']),
+      shareAmount: _toInt(json['share_amount']),
+      receiptImageUrl: json['receipt_image_url']?.toString()
+          ?? json['image_url']?.toString(),
+      paymentLink: json['kakaopay_link']?.toString()
+          ?? json['payment_link']?.toString()
+          ?? channelLink,
+      status: json['status']?.toString() ?? 'REQUEST',
+    );
+  }
+
+  static int _toInt(dynamic value) {
+    if (value is int) return value;
+    if (value is double) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  String get totalAmountText => '${_formatWon(totalAmount)}원';
+  String get shareAmountText => '${_formatWon(shareAmount)}원';
+
+  static String _formatWon(int value) {
+    return value.toString().replaceAllMapped(
+      RegExp(r'\B(?=(\d{3})+(?!\d))'),
+      (match) => ',',
+    );
+  }
+}
+
 // ============================================================
 // 채팅 탭 — 목록 화면
 // ============================================================
@@ -88,7 +148,7 @@ class _MessageTabState extends State<MessageTab> {
     setState(() => _isLoading = true);
 
     final List<dynamic> data = await TripService.getChatRooms(
-      token: 'this-is-a-fake-test-token-12345', // 실제 연동시 UserToken 입력
+      token: AuthSession.token ?? '', // 실제 연동시 UserToken 입력
     );
 
     if (mounted) {
@@ -213,8 +273,21 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   List<_Message> _messages = [];
   final TextEditingController _inputCtrl = TextEditingController();
   final ScrollController _scrollCtrl = ScrollController();
+  // 테스트용 리더 토큰. 실제 배포에서는 로그인 후 저장된 토큰을 사용해야 함.
+  //static const String _settlementToken = AuthSession.token ?? '';
+
   final ImagePicker _picker = ImagePicker();
-  bool _showAttachPanel = false;
+  final TextEditingController _settlementAmountCtrl = TextEditingController();
+  final TextEditingController _kakaoPayLinkCtrl = TextEditingController(
+    text: 'https://qr.kakaopay.com/test-link',
+  );
+
+  int? _currentReceiptId;
+  String? _currentReceiptImageUrl;
+  bool _isSettlementProcessing = false;
+  // 우선 주석처리
+  // final ImagePicker _picker = ImagePicker();
+  // bool _showAttachPanel = false;
 
   @override
   void initState() {
@@ -223,26 +296,58 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   }
 
   void _connectWebSocket() {
-    // 🌟 TripService의 serverUrl을 기반으로 웹소켓 경로 설정
-    final wsUrl = Uri.parse('ws://3.35.37.129:8000/ws/chat/${widget.room.id}/');
+    final wsUrl = Uri.parse('${AppConfig.wsBaseUrl}/ws/chat/${widget.room.id}/');
     _channel = WebSocketChannel.connect(wsUrl);
 
     _channel!.stream.listen((data) {
-      final decoded = jsonDecode(data);
-      if (mounted) {
-        setState(() {
-          _messages.add(_Message(
-            id: DateTime.now().millisecondsSinceEpoch.toString(),
-            userId: decoded['sender'],
-            text: decoded['message'],
-            time: TimeOfDay.now().format(context),
-            isMe: decoded['sender'] == widget.myNickname,
-          ));
-        });
-        _scrollToBottom();
+      final decodedRaw = jsonDecode(data);
+
+      if (decodedRaw is! Map) {
+        return;
       }
+
+      final decoded = Map<String, dynamic>.from(decodedRaw);
+
+      if (!mounted) return;
+
+      setState(() {
+        final messageType = decoded['type']?.toString();
+
+        if (messageType == 'settlement_request') {
+          final settlementRaw = decoded['settlement'];
+
+          final settlementJson = settlementRaw is Map
+              ? Map<String, dynamic>.from(settlementRaw)
+              : decoded;
+
+          _messages.add(
+            _Message(
+              id: DateTime.now().millisecondsSinceEpoch.toString(),
+              userId: decoded['sender']?.toString() ?? 'system',
+              text: '정산 요청이 도착했습니다.',
+              time: TimeOfDay.now().format(context),
+              isMe: false,
+              isSettlement: true,
+              settlement: SettlementMessage.fromJson(settlementJson),
+            ),
+          );
+        } else {
+          _messages.add(
+            _Message(
+              id: DateTime.now().millisecondsSinceEpoch.toString(),
+              userId: decoded['sender']?.toString() ?? '',
+              text: decoded['message']?.toString() ?? '',
+              time: TimeOfDay.now().format(context),
+              isMe: decoded['sender'] == widget.myNickname,
+            ),
+          );
+        }
+      });
+
+      _scrollToBottom();
     });
   }
+ 
 
   void _sendMessage() {
     final text = _inputCtrl.text.trim();
@@ -262,9 +367,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     _channel?.sink.close();
     _inputCtrl.dispose();
     _scrollCtrl.dispose();
+    _settlementAmountCtrl.dispose();
+    _kakaoPayLinkCtrl.dispose();
     super.dispose();
   }
-
   // --- 기존 UI 빌더 (_buildChatHeader, _buildInputBar 등) 생략 없이 그대로 유지하여 사용하시면 됩니다 ---
   // (코드 중복 방지를 위해 주요 로직 위주로 재구성하였습니다.)
 
@@ -298,6 +404,10 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   }
 
   Widget _buildMessageBubble(_Message msg) {
+    if (msg.isSettlement && msg.settlement != null) {
+      return _buildSettlementRequestCard(msg.settlement!);
+    }
+
     return Align(
       alignment: msg.isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
@@ -308,8 +418,273 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           borderRadius: BorderRadius.circular(12),
           border: msg.isMe ? null : Border.all(color: AppColors.border),
         ),
-        child: Text(msg.text, style: TextStyle(color: msg.isMe ? Colors.white : AppColors.secondary)),
+        child: Text(
+          msg.text,
+          style: TextStyle(color: msg.isMe ? Colors.white : AppColors.secondary),
+        ),
       ),
+    );
+  }
+
+  Widget _buildSettlementRequestCard(SettlementMessage settlement) {
+   return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        width: double.infinity,
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.receipt_long, color: AppColors.primary, size: 20),
+                SizedBox(width: 6),
+                Text(
+                  '정산 요청이 도착했습니다',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.secondary,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '총 결제액과 1인당 정산금액을 확인한 뒤 정산을 진행해주세요.',
+              style: TextStyle(
+                fontSize: 12,
+                color: AppColors.gray,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => _showSettlementDialog(settlement),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                child: const Text('정산 정보 확인하기'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  void _showSettlementDialog(SettlementMessage settlement) {
+    bool isChecked = false;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
+              title: const Text(
+                '정산 확인',
+                style: TextStyle(
+                  fontWeight: FontWeight.w900,
+                  color: AppColors.secondary,
+                ),
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildSettlementInfoRow('총 결제액', settlement.totalAmountText),
+                  const SizedBox(height: 8),
+                  _buildSettlementInfoRow('1인당 정산금액', settlement.shareAmountText),
+                  const SizedBox(height: 16),
+
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () => _openReceiptImage(settlement.receiptImageUrl),
+                      icon: const Icon(Icons.image_outlined),
+                      label: const Text('이용내역 확인하기'),
+                    ),
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Checkbox(
+                        value: isChecked,
+                        onChanged: (value) {
+                          setDialogState(() {
+                            isChecked = value ?? false;
+                          });
+                        },
+                      ),
+                      const Expanded(
+                        child: Padding(
+                          padding: EdgeInsets.only(top: 12),
+                          child: Text(
+                            '이용내역과 금액을 확인했습니다.\n체크 후 정산하기 버튼이 활성화됩니다.',
+                            style: TextStyle(
+                              fontSize: 12,
+                              height: 1.4,
+                              color: AppColors.secondary,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('닫기'),
+                ),
+                ElevatedButton(
+                  onPressed: isChecked
+                    ? () async {
+                        try {
+                          final result = await SettlementService.openSettlementLink(
+                            token: AuthSession.token ?? '',
+                            settlementId: settlement.settlementId,
+                          );
+
+                          String? link = result['kakaopay_link']?.toString()
+                              ?? result['payment_link']?.toString()
+                              ?? result['link']?.toString();
+
+                          final paymentChannel = result['payment_channel'];
+                          if ((link == null || link.isEmpty) && paymentChannel is Map) {
+                            final paymentChannelMap = Map<String, dynamic>.from(paymentChannel);
+                            link = paymentChannelMap['kakaopay_link']?.toString()
+                                ?? paymentChannelMap['payment_link']?.toString();
+                          }
+
+                          link ??= settlement.paymentLink;
+
+                          if (link == null || link.isEmpty) {
+                            if (!mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('등록된 송금 링크가 없습니다.')),
+                            );
+                            return;
+                          }
+
+                          if (mounted) {
+                            Navigator.pop(dialogContext);
+                          }
+
+                          final uri = Uri.parse(link);
+                          final opened = await launchUrl(
+                            uri,
+                            mode: LaunchMode.externalApplication,
+                          );
+
+                          if (!opened && mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('송금 링크를 열 수 없습니다.')),
+                            );
+                          }
+                        } catch (e) {
+                          if (!mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('송금 링크 열림 처리 실패: $e')),
+                          );
+                        }
+                      }
+                    : null,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('정산하기'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildSettlementInfoRow(String label, String value) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 13,
+            color: AppColors.gray,
+          ),
+        ),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w800,
+            color: AppColors.secondary,
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _openReceiptImage(String? imageUrl) {
+    if (imageUrl == null || imageUrl.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('등록된 이용내역 이미지가 없습니다.')),
+      );
+      return;
+    }
+
+    showDialog(
+      context: context,
+      builder: (_) {
+        return Dialog(
+          insetPadding: const EdgeInsets.all(16),
+          child: Stack(
+            children: [
+              InteractiveViewer(
+                child: Image.network(
+                  imageUrl,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) {
+                    return const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Text('이미지를 불러올 수 없습니다.'),
+                    );
+                  },
+                ),
+              ),
+              Positioned(
+                top: 8,
+                right: 8,
+                child: IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -318,6 +693,16 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 14),
       decoration: const BoxDecoration(color: Colors.white, border: Border(top: BorderSide(color: AppColors.border))),
       child: Row(children: [
+        IconButton(
+          icon: _isSettlementProcessing
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.receipt_long, color: AppColors.primary),
+          onPressed: _isSettlementProcessing ? null : _startLeaderSettlementFlow,
+        ),
         Expanded(
           child: TextField(
             controller: _inputCtrl,
@@ -329,4 +714,213 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       ]),
     );
   }
-}
+
+  Future<void> _startLeaderSettlementFlow() async {
+    try {
+      final pickedFile = await _picker.pickImage(source: ImageSource.gallery);
+
+      if (pickedFile == null) {
+        return;
+      }
+
+      setState(() {
+        _isSettlementProcessing = true;
+      });
+
+      final uploadResult = await SettlementService.uploadReceiptImage(
+        token: AuthSession.token ?? '',
+        tripId: widget.room.id,
+        imageFile: File(pickedFile.path),
+      );
+
+      final receiptId = _toInt(uploadResult['id']);
+
+      if (receiptId == 0) {
+        throw Exception('receipt_id를 찾을 수 없습니다.');
+      }
+
+      final analyzeResult = await SettlementService.analyzeReceiptOcr(
+        token: AuthSession.token ?? '',
+        receiptId: receiptId,
+      );
+
+      final extractedAmount = _toInt(analyzeResult['extracted_total_amount']);
+
+      _currentReceiptId = receiptId;
+      _currentReceiptImageUrl = analyzeResult['receipt_image_url']?.toString();
+
+      if (extractedAmount > 0) {
+        _settlementAmountCtrl.text = extractedAmount.toString();
+      }
+
+      if (!mounted) return;
+
+      _showLeaderSettlementDialog();
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('영수증 분석 실패: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSettlementProcessing = false;
+        });
+      }
+    }
+  }
+
+  int _toInt(dynamic value) {
+    if (value is int) return value;
+    if (value is double) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  void _showLeaderSettlementDialog() {
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+          title: const Text(
+            '정산 요청',
+            style: TextStyle(
+              fontWeight: FontWeight.w900,
+              color: AppColors.secondary,
+            ),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: _settlementAmountCtrl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: '총 결제 금액',
+                  hintText: '예: 18400',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _kakaoPayLinkCtrl,
+                decoration: const InputDecoration(
+                  labelText: '카카오페이 송금 링크',
+                  hintText: 'https://qr.kakaopay.com/...',
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () => _openReceiptImage(_currentReceiptImageUrl),
+                  icon: const Icon(Icons.image_outlined),
+                  label: const Text('업로드한 이용내역 확인'),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('닫기'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                await _submitLeaderSettlement(dialogContext);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('정산 요청하기'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _submitLeaderSettlement(BuildContext dialogContext) async {
+    final receiptId = _currentReceiptId;
+    final amountText = _settlementAmountCtrl.text.replaceAll(',', '').trim();
+    final amount = int.tryParse(amountText);
+    final link = _kakaoPayLinkCtrl.text.trim();
+
+    if (receiptId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('영수증 정보가 없습니다.')),
+      );
+      return;
+    }
+
+    if (amount == null || amount <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('올바른 금액을 입력해주세요.')),
+      );
+      return;
+    }
+
+    if (link.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('송금 링크를 입력해주세요.')),
+      );
+      return;
+    }
+
+    try {
+      await SettlementService.confirmReceiptAmount(
+        token: AuthSession.token ?? '',
+        receiptId: receiptId,
+        totalAmount: amount,
+      );
+
+      await SettlementService.upsertPaymentChannel(
+        token: AuthSession.token ?? '',
+        tripId: widget.room.id,
+        kakaopayLink: link,
+      );
+
+      final settlements = await SettlementService.createSettlements(
+        token: AuthSession.token ?? '',
+        tripId: widget.room.id,
+      );
+
+      if (!mounted) return;
+
+      Navigator.pop(dialogContext);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('정산 요청이 생성되었습니다.')),
+      );
+
+      if (settlements.isNotEmpty) {
+        final first = Map<String, dynamic>.from(settlements.first as Map);
+
+        setState(() {
+          _messages.add(
+            _Message(
+              id: DateTime.now().millisecondsSinceEpoch.toString(),
+              userId: widget.myNickname,
+              text: '정산 요청을 보냈습니다.',
+              time: TimeOfDay.now().format(context),
+              isMe: true,
+              isSettlement: true,
+              settlement: SettlementMessage.fromJson(first),
+            ),
+          );
+        });
+
+        _scrollToBottom();
+      }
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('정산 요청 실패: $e')),
+      );
+    }
+  }
+  }

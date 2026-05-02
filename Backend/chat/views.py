@@ -5,6 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from django.db.models import Q
 from .models import ChatRoom
 from .serializers import ChatRoomSerializer
+from trips.models import Trip, TripParticipant
 
 
 class ChatRoomListCreateView(APIView):
@@ -14,12 +15,21 @@ class ChatRoomListCreateView(APIView):
     def get(self, request):
         user = request.user
 
-        # 💡 중요: 여기서는 Trip 모델에서 유저가 참여 중인지 판단하는 기준을 적어야 합니다.
-        # 아래는 예시입니다. 본인의 Trip 모델 구조에 맞춰서 필드명을 변경해주세요!
-        # 예: 내가 방장(host)이거나, 동승객(passengers) 테이블에 내가 있는 경우
+        # 내가 리더인 트립
+        leader_trip_ids = Trip.objects.filter(
+            leader_user=user
+        ).values_list("id", flat=True)
+
+        # 내가 참여 중인 트립
+        participant_trip_ids = TripParticipant.objects.filter(
+            user=user,
+            status="JOINED",
+        ).values_list("trip_id", flat=True)
+
         rooms = ChatRoom.objects.filter(
-            Q(trip__host=user) | Q(trip__passengers=user)  # <-- 이 부분을 실제 DB 필드에 맞게 수정!
-        ).distinct().order_by('-created_at')
+            Q(trip_id__in=leader_trip_ids) |
+            Q(trip_id__in=participant_trip_ids)
+        ).distinct().order_by("-created_at")
 
         serializer = ChatRoomSerializer(rooms, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)

@@ -1,12 +1,14 @@
 // ============================================================
 // lib/screens/tabs/matching_tab.dart
 // ============================================================
+import '../../service/auth_session.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import '../../utils/colors.dart';
 import '../location_search_screen.dart';
 import 'home_tab.dart' as home;
 import '../../service/trip_service.dart';
+import 'message_tab.dart';
 
 // 매칭 탭 전체 레이아웃 (내부 상태 변경 시 화면 리빌드)
 class MatchingTab extends StatefulWidget {
@@ -624,7 +626,7 @@ class _MatchingTabState extends State<MatchingTab>
     if (!mounted) return;
     setState(() => _isFetching = true);
 
-    final List<dynamic> data = await TripService.getTrips(token: 'this-is-a-fake-test-token-12345');
+    final List<dynamic> data = await TripService.getTrips(token: AuthSession.token ?? '');
 
     if (mounted) {
       setState(() {
@@ -669,7 +671,7 @@ class _MatchingTabState extends State<MatchingTab>
 
     // 1. 핀 생성 API 호출
     final result = await TripService.createTrip(
-      token: 'this-is-a-fake-test-token-12345',
+      token: AuthSession.token ?? '',
       deptName: _deptCtrl.text,
       deptLat: _deptLat!,
       deptLng: _deptLng!,
@@ -689,7 +691,7 @@ class _MatchingTabState extends State<MatchingTab>
 
       // 2. 채팅방 생성 API 호출
       final chatResult = await TripService.createChatRoom(
-        token: 'this-is-a-fake-test-token-12345',
+        token: AuthSession.token ?? '',
         tripId: newTripId,
       );
 
@@ -1128,7 +1130,7 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
 
     // 1. 서버에 참여 요청 보내기
     final result = await TripService.joinTrip(
-      token: 'this-is-a-fake-test-token-12345', // 실제 토큰으로 교체 필요
+      token: AuthSession.token ?? '', // 실제 토큰으로 교체 필요
       tripId: widget.pin['id'],      // 전달받은 핀 ID 사용
       seatPosition: _selectedSeat!,
     );
@@ -1155,10 +1157,22 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
                 Navigator.pushReplacement(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => ChatRoomScreen(
-                      tripId: widget.pin['id'], // ✨ 가장 중요한 tripId 전달
-                      hostId: widget.pin['hostId'],
-                    ),
+                    builder: (_) {
+                      final tripId = widget.pin['id'] is int
+                        ? widget.pin['id'] as int
+                        : int.parse(widget.pin['id'].toString());
+                      return ChatRoomScreen(
+                        room: ChatRoomModel(
+                          id: tripId,
+                          name: 'Trip #$tripId 채팅방',
+                          lastMessage: '채팅방이 생성되었습니다.',
+                          time: widget.pin['time']?.toString() ?? '',
+                          unreadCount: 0,
+                          pinnedNotice: '만날 위치를 공유해주세요',
+                        ),
+                        myNickname: '나',
+                      );
+                    },
                   ),
                 );
                },

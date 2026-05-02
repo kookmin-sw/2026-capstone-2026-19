@@ -1,6 +1,6 @@
 from django.urls import path
-from .views import ChatRoomCreateView
+from .views import ChatRoomListCreateView
 
 urlpatterns = [
-    path('chat/rooms/', ChatRoomCreateView.as_view(), name='chat-room-create'),
+    path('chat/rooms/', ChatRoomListCreateView.as_view(), name='chat-room-list-create'),
 ]
