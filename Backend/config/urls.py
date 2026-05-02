@@ -15,8 +15,19 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
-from django.urls import path
+from django.urls import path, include  # 1. include를 여기에 꼭 추가해야 합니다!
 
 urlpatterns = [
+    # 2. admin.site.view가 아니라 admin.site.urls가 맞습니다.
     path('admin/', admin.site.urls),
+
+    # 3. 각 앱의 상세 지도로 연결
+    path('api/accounts/', include('accounts.urls')),
+    path('api/trips/', include('trips.urls')),
+    path('api/users/', include('accounts.urls')),
+    path('api/moderation/', include('moderation.urls')),
+    path('/chat/rooms/', include('chat.urls')),
+    path('/api/trips/{tripId}/join/', include('trips.urls')),
+
+
 ]

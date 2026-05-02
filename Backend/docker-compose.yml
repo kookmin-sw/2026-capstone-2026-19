@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  # 1. DB (PostgreSQL) 컨테이너
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: crescit_db
+      POSTGRES_USER: crescit_user
+      POSTGRES_PASSWORD: supersecretpassword # 실제 배포 시엔 안전하게 관리!
+    volumes:
+      - postgres_data:/var/lib/postgresql/data # 컨테이너가 꺼져도 데이터가 날아가지 않게 저장
+
+  # 2. Redis 컨테이너
+  redis:
+    image: redis:alpine
+
+  # 3. 백엔드 (Django) 컨테이너
+  web:
+    build: . # 현재 폴더의 Dockerfile을 읽어서 이미지를 굽습니다.
+    command: python manage.py runserver 0.0.0.0:8000
+    ports:
+      - "8000:8000"
+    environment:
+      - DB_HOST=db       # 장고가 DB를 찾을 때 쓸 주소
+      - REDIS_HOST=redis # 장고가 Redis를 찾을 때 쓸 주소
+    depends_on:
+      - db
+      - redis # DB와 Redis가 먼저 켜진 다음에 장고를 켭니다.
+
+# DB 데이터를 내 컴퓨터(또는 서버)에 영구 보존하기 위한 설정
+volumes:
+  postgres_data:
