@@ -10,8 +10,7 @@ __pycache__/
 .env.test.local
 .env.production.local
 
-# keep example env
-!.env
+
 
 # OS / editor
 .DS_Store
