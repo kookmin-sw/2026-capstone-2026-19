@@ -187,19 +187,33 @@ class _MessageTabState extends State<MessageTab> {
             Expanded(
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator())
-                  : RefreshIndicator(
-                      onRefresh: _fetchChatRooms,
-                      child: ListView.builder(
-                        itemCount: _serverRooms.length,
-                        itemBuilder: (_, i) => _buildRoomTile(context, _serverRooms[i]),
-                      ),
-                    ),
+                  : _serverRooms.isEmpty
+                      ? const Center(
+                          child: Text(
+                            '채팅방이 없습니다.',
+                            style: TextStyle(
+                              color: AppColors.gray,
+                              fontSize: 13,
+                            ),
+                          ),
+                        )
+                      : ListView.builder(
+                          itemCount: _serverRooms.length,
+                          itemBuilder: (context, index) {
+                            return _buildRoomTile(
+                              context,
+                              _serverRooms[index],
+                            );
+                          },
+                        ),
             ),
           ],
         ),
       ),
     );
   }
+
+  
 
   Widget _buildHeader() {
     return Container(
@@ -302,6 +316,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   int? _currentReceiptId;
   String? _currentReceiptImageUrl;
   bool _isSettlementProcessing = false;
+  bool _showAttachPanel = false;
+  bool _isNoticeExpanded = false;
   // 우선 주석처리
   // final ImagePicker _picker = ImagePicker();
   // bool _showAttachPanel = false;
@@ -444,13 +460,78 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF9F8F6),
-      appBar: AppBar(title: Text(widget.room.name), backgroundColor: Colors.white, foregroundColor: AppColors.secondary, elevation: 1),
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        centerTitle: false,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: AppColors.secondary),
+          onPressed: () => Navigator.pop(context),
+        ),
+        titleSpacing: 0,
+        title: Row(
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: const BoxDecoration(
+                color: Color(0xFFF1F1EF),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.person,
+                color: AppColors.gray,
+                size: 21,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    widget.room.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AppColors.secondary,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  const Text(
+                    '• 참여 중',
+                    style: TextStyle(
+                      color: AppColors.primary,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.search, color: AppColors.secondary),
+            onPressed: () {},
+          ),
+          IconButton(
+            icon: const Icon(Icons.more_vert, color: AppColors.secondary),
+            onPressed: _showMoreMenu,
+          ),
+        ],
+      ),
       body: Column(
         children: [
+          _buildNoticeBar(),
           Expanded(
             child: ListView.builder(
               controller: _scrollCtrl,
-              padding: const EdgeInsets.all(14),
+              padding: const EdgeInsets.fromLTRB(14, 16, 14, 14),
               itemCount: _messages.length,
               itemBuilder: (_, i) => _buildMessageBubble(_messages[i]),
             ),
@@ -466,19 +547,107 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       return _buildSettlementRequestCard(msg.settlement!);
     }
 
+    if (msg.imageFile != null) {
+      return Align(
+        alignment: msg.isMe ? Alignment.centerRight : Alignment.centerLeft,
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 8),
+          constraints: const BoxConstraints(
+            maxWidth: 220,
+            maxHeight: 220,
+          ),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.border),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Image.file(
+            msg.imageFile!,
+            fit: BoxFit.cover,
+          ),
+        ),
+      );
+    }
+
     return Align(
       alignment: msg.isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: msg.isMe ? AppColors.primary : Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: msg.isMe ? null : Border.all(color: AppColors.border),
-        ),
-        child: Text(
-          msg.text,
-          style: TextStyle(color: msg.isMe ? Colors.white : AppColors.secondary),
+        margin: const EdgeInsets.only(bottom: 10),
+        constraints: const BoxConstraints(maxWidth: 260),
+        child: Column(
+          crossAxisAlignment:
+              msg.isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          children: [
+            if (!msg.isMe)
+              Padding(
+                padding: const EdgeInsets.only(left: 4, bottom: 4),
+                child: Text(
+                  '@${msg.userId}',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: AppColors.gray,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                if (msg.isMe)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: Text(
+                      msg.time,
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: AppColors.gray,
+                      ),
+                    ),
+                  ),
+
+                Flexible(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 13,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: msg.isMe ? AppColors.primary : Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: msg.isMe
+                          ? null
+                          : Border.all(color: AppColors.border),
+                    ),
+                    child: Text(
+                      msg.text,
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.35,
+                        color: msg.isMe ? Colors.white : AppColors.secondary,
+                        decoration: msg.isLink
+                            ? TextDecoration.underline
+                            : TextDecoration.none,
+                      ),
+                    ),
+                  ),
+                ),
+
+                if (!msg.isMe)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 6),
+                    child: Text(
+                      msg.time,
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: AppColors.gray,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
         ),
       ),
     );
@@ -746,31 +915,367 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     );
   }
 
+  Widget _buildNoticeBar() {
+    final noticeText = widget.room.pinnedNotice.isNotEmpty
+        ? widget.room.pinnedNotice
+        : '택시 번호 및 만날 위치를 꼭 공유해주세요!';
+
+    return Container(
+      width: double.infinity,
+      decoration: const BoxDecoration(
+        color: Color(0xFFEAF5EF),
+        border: Border(
+          top: BorderSide(color: AppColors.border),
+          bottom: BorderSide(color: AppColors.border),
+        ),
+      ),
+      child: Column(
+        children: [
+          InkWell(
+            onTap: () {
+              setState(() {
+                _isNoticeExpanded = !_isNoticeExpanded;
+              });
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.push_pin,
+                    size: 17,
+                    color: AppColors.primary,
+                  ),
+                  const SizedBox(width: 8),
+                  const Text(
+                    '공지',
+                    style: TextStyle(
+                      color: AppColors.primary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const Spacer(),
+                  Icon(
+                    _isNoticeExpanded
+                        ? Icons.keyboard_arrow_up
+                        : Icons.keyboard_arrow_down,
+                    size: 20,
+                    color: AppColors.primary,
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          if (_isNoticeExpanded)
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Text(
+                noticeText,
+                style: const TextStyle(
+                  color: AppColors.secondary,
+                  fontSize: 13,
+                  height: 1.4,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _showMoreMenu() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) {
+        return SafeArea(
+          child: Container(
+            margin: const EdgeInsets.all(16),
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 42,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFDADADA),
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+                _buildMoreMenuItem(
+                  icon: Icons.notifications,
+                  title: '채팅 알림',
+                  trailing: Switch(
+                    value: true,
+                    activeColor: AppColors.primary,
+                    onChanged: (_) {},
+                  ),
+                ),
+                _buildMoreMenuItem(
+                  icon: Icons.search,
+                  title: '채팅방 검색',
+                  onTap: () {
+                    Navigator.pop(context);
+                  },
+                ),
+                _buildMoreMenuItem(
+                  icon: Icons.group_add_outlined,
+                  title: '참여자 목록',
+                  onTap: () {
+                    Navigator.pop(context);
+                  },
+                ),
+                const Divider(height: 18),
+                _buildMoreMenuItem(
+                  icon: Icons.exit_to_app,
+                  title: '채팅방 나가기',
+                  color: Colors.redAccent,
+                  onTap: () {
+                    Navigator.pop(context);
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildMoreMenuItem({
+    required IconData icon,
+    required String title,
+    Color color = AppColors.secondary,
+    Widget? trailing,
+    VoidCallback? onTap,
+  }) {
+    return ListTile(
+      leading: Icon(icon, color: color, size: 22),
+      title: Text(
+        title,
+        style: TextStyle(
+          color: color,
+          fontSize: 14,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      trailing: trailing,
+      onTap: onTap,
+    );
+  }
+
   Widget _buildInputBar() {
     return Container(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 14),
-      decoration: const BoxDecoration(color: Colors.white, border: Border(top: BorderSide(color: AppColors.border))),
-      child: Row(children: [
-        IconButton(
-          icon: _isSettlementProcessing
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.receipt_long, color: AppColors.primary),
-          onPressed: _isSettlementProcessing ? null : _startLeaderSettlementFlow,
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: AppColors.border)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_showAttachPanel)
+              Container(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  border: Border(bottom: BorderSide(color: AppColors.border)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _buildAttachAction(
+                      icon: Icons.image_outlined,
+                      label: '사진',
+                      onTap: () async {
+                        setState(() => _showAttachPanel = false);
+                        await _pickAndSendImage(ImageSource.gallery);
+                      },
+                    ),
+                    _buildAttachAction(
+                      icon: Icons.camera_alt_outlined,
+                      label: '카메라',
+                      onTap: () async {
+                        setState(() => _showAttachPanel = false);
+                        await _pickAndSendImage(ImageSource.camera);
+                      },
+                    ),
+                    _buildAttachAction(
+                      icon: Icons.receipt_long,
+                      label: '정산 요청',
+                      onTap: _isSettlementProcessing
+                          ? null
+                          : () {
+                              setState(() => _showAttachPanel = false);
+                              _startLeaderSettlementFlow();
+                            },
+                    ),
+                  ],
+                ),
+              ),
+
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+              child: Row(
+                children: [
+                  GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _showAttachPanel = !_showAttachPanel;
+                      });
+                    },
+                    child: Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: _showAttachPanel
+                            ? AppColors.primary
+                            : const Color(0xFFF4F4F2),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: Icon(
+                        _showAttachPanel ? Icons.close : Icons.add,
+                        size: 22,
+                        color: _showAttachPanel ? Colors.white : AppColors.gray,
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(width: 8),
+
+                  Expanded(
+                    child: Container(
+                      height: 40,
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF4F4F2),
+                        borderRadius: BorderRadius.circular(22),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: TextField(
+                        controller: _inputCtrl,
+                        decoration: const InputDecoration(
+                          hintText: '메시지 입력...',
+                          border: InputBorder.none,
+                          isDense: true,
+                        ),
+                        onSubmitted: (_) => _sendMessage(),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(width: 8),
+
+                  GestureDetector(
+                    onTap: _sendMessage,
+                    child: Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF4F4F2),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: const Icon(
+                        Icons.arrow_upward,
+                        size: 20,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
-        Expanded(
-          child: TextField(
-            controller: _inputCtrl,
-            decoration: const InputDecoration(hintText: '메시지 입력...', border: InputBorder.none),
-            onSubmitted: (_) => _sendMessage(),
-          ),
-        ),
-        IconButton(icon: const Icon(Icons.send, color: AppColors.primary), onPressed: _sendMessage),
-      ]),
+      ),
     );
+  }
+
+  Widget _buildAttachAction({
+    required IconData icon,
+    required String label,
+    required VoidCallback? onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Opacity(
+        opacity: onTap == null ? 0.5 : 1,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 46,
+              height: 46,
+              decoration: BoxDecoration(
+                color: const Color(0xFFEAF5EF),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(
+                icon,
+                color: AppColors.primary,
+                size: 22,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 11,
+                color: AppColors.gray,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickAndSendImage(ImageSource source) async {
+    try {
+      final pickedFile = await _picker.pickImage(source: source);
+
+      if (pickedFile == null) return;
+
+      setState(() {
+        _messages.add(
+          _Message(
+            id: DateTime.now().millisecondsSinceEpoch.toString(),
+            userId: widget.myNickname,
+            text: '',
+            time: TimeOfDay.now().format(context),
+            isMe: true,
+            imageFile: File(pickedFile.path),
+          ),
+        );
+      });
+
+      _scrollToBottom();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('이미지 선택 실패: $e')),
+      );
+    }
   }
 
   Future<void> _startLeaderSettlementFlow() async {
