@@ -137,10 +137,22 @@ class _MessageTabState extends State<MessageTab> {
   // 현재는 TripService의 토큰 흐름에 맞춰 상수로 두거나 생성 시 받아와야 합니다.
   final String _currentUsername = "my_username";
 
+  void _onChatRoomsChanged() {
+    _fetchChatRooms();
+  }
+
   @override
   void initState() {
     super.initState();
     _fetchChatRooms();
+
+    TripService.chatRoomsRefreshNotifier.addListener(_onChatRoomsChanged);
+  }
+
+  @override
+  void dispose() {
+    TripService.chatRoomsRefreshNotifier.removeListener(_onChatRoomsChanged);
+    super.dispose();
   }
 
   Future<void> _fetchChatRooms() async {
@@ -347,7 +359,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       _scrollToBottom();
     });
   }
- 
+
 
   void _sendMessage() {
     final text = _inputCtrl.text.trim();

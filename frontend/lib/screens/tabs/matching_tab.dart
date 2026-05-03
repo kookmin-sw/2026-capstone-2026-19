@@ -49,22 +49,32 @@ class _MatchingTabState extends State<MatchingTab>
   // 좌석 옵션 상수
   static const _seats = ['조수석', '왼쪽 창가', '가운데', '오른쪽 창가'];
 
+  void _onTripsChanged() {
+    _fetchTrips();
+  }
+
   // 생명주기 관리
   @override
   void initState() { // 트리에 위젯 첫 삽입 시 초기 설정 수행
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _fetchTrips();
+
+    TripService.tripsRefreshNotifier.addListener(_onTripsChanged);
   }
+
 
   @override
-  void dispose() { // 위젯 제거 시 컨트롤러 해제
+  void dispose() {
+    TripService.tripsRefreshNotifier.removeListener(_onTripsChanged);
+
     _tabController.dispose();
     _searchCtrl.dispose();
-    _deptCtrl.dispose(); _destCtrl.dispose(); _kakaoCtrl.dispose();
+    _deptCtrl.dispose();
+    _destCtrl.dispose();
+    _kakaoCtrl.dispose();
     super.dispose();
   }
-
 
   // 매칭 탭 기본 화면 구조 위젯 트리
   @override
@@ -217,11 +227,12 @@ class _MatchingTabState extends State<MatchingTab>
   // 핀 목록 카드 위젯
   Widget _buildSearchCard(home.RidePin pin) {
     final isFull = pin.cur >= pin.max;
-    final isSelected = _selectedCardId == pin.hostId;
+    final isMine = pin.isMine;
+    final isSelected = _selectedCardId == pin.id;
 
     return GestureDetector(
       onTap: () => setState(() =>
-      _selectedCardId = isSelected ? null : pin.hostId),
+      _selectedCardId = isSelected ? null : pin.id),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         margin: const EdgeInsets.only(bottom: 12),
@@ -316,28 +327,47 @@ class _MatchingTabState extends State<MatchingTab>
                     width: double.infinity,
                     child: ElevatedButton(
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: isFull ? AppColors.gray : AppColors.primary,
+                        backgroundColor: isMine || isFull ? AppColors.gray : AppColors.primary,
+                        disabledBackgroundColor: const Color(0xFFE5E7EB),
+                        disabledForegroundColor: AppColors.gray,
                         foregroundColor: Colors.white,
                         elevation: 0,
                         padding: const EdgeInsets.symmetric(vertical: 13),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
-                      onPressed: isFull ? null : () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (_) => RideJoinScreen(pin: {
-                            'id': pin.id, // ✅ 백엔드 연동을 위해 핀 ID 전달 추가 완료
-                            'hostId': pin.hostId,
-                            'dept': pin.dept,
-                            'dest': pin.dest,
-                            'time': pin.time,
-                            'max': pin.max,
-                            'cur': pin.cur,
-                          })),
-                        );
-                      },
-                      child: Text(isFull ? '마감' : '참여하기',
-                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                      onPressed: isMine || isFull
+                          ? null
+                          : () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => RideJoinScreen(
+                                    pin: {
+                                      'id': pin.id,
+                                      'hostId': pin.hostId,
+                                      'dept': pin.dept,
+                                      'dest': pin.dest,
+                                      'time': pin.time,
+                                      'max': pin.max,
+                                      'cur': pin.cur,
+                                    },
+                                  ),
+                                ),
+                              );
+                            },
+                      child: Text(
+                        isMine
+                            ? '내가 생성한 모집글입니다'
+                            : isFull
+                                ? '마감'
+                                : '참여하기',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     ),
                   ),
                 ],
@@ -640,6 +670,7 @@ class _MatchingTabState extends State<MatchingTab>
           cur: item['current_count'],
           lat: double.parse(item['depart_lat'].toString()),
           lng: double.parse(item['depart_lng'].toString()),
+          isMine: item['is_mine'] == true,
         )).toList();
         _isFetching = false;
       });
@@ -700,19 +731,21 @@ class _MatchingTabState extends State<MatchingTab>
       } else {
         print("❌ 채팅방 생성 실패: ${chatResult['message']}");
       }
+      await _fetchTrips();
+      TripService.tripsRefreshNotifier.notifyListeners();
 
       // 로컬 리스트 업데이트 및 화면 전환
-      home.globalPins.add(home.RidePin(
-        id: newTripId.toString(),
-        hostId: 'my_username',
-        dept: _deptCtrl.text,
-        dest: _destCtrl.text,
-        time: '${_selectedTime.hour.toString().padLeft(2, '0')}:${_selectedTime.minute.toString().padLeft(2, '0')}',
-        max: _maxPeople,
-        cur: 1,
-        lat: _deptLat!,
-        lng: _deptLng!,
-      ));
+      // home.globalPins.add(home.RidePin(
+      //   id: newTripId.toString(),
+      //   hostId: 'my_username',
+      //   dept: _deptCtrl.text,
+      //   dest: _destCtrl.text,
+      //   time: '${_selectedTime.hour.toString().padLeft(2, '0')}:${_selectedTime.minute.toString().padLeft(2, '0')}',
+      //   max: _maxPeople,
+      //   cur: 1,
+      //   lat: _deptLat!,
+      //   lng: _deptLng!,
+      // ));
 
       setState(() => _pinCreated = true);
 

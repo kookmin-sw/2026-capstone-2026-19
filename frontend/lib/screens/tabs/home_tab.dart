@@ -16,6 +16,8 @@ import '../../utils/colors.dart';
 import 'matching_tab.dart';
 import 'active_tab.dart';
 import '../location_search_screen.dart';
+import '../../service/trip_service.dart';
+import '../../service/auth_session.dart';
 
 // 탭 전환 신호 역할 (인덱스 전달)
 typedef OnTabChange = void Function(int index);
@@ -25,13 +27,20 @@ class RidePin {
   final String id, hostId, dept, dest, time;  // 핀 ID, 대표자 ID, 출발지, 목적지, 출발 시각
   final int max, cur; // 최대 모집 인원, 현재 참여 인원
   final double lat, lng; // 실제 좌표
+  final bool isMine;
 
-  // 더미 데이터 연결 용 상수 객체
+
   const RidePin({
-    required this.id, required this.hostId,
-    required this.dept, required this.dest, required this.time,
-    required this.max, required this.cur,
-    required this.lat, required this.lng,
+    required this.id,
+    required this.hostId,
+    required this.dept,
+    required this.dest,
+    required this.time,
+    required this.max,
+    required this.cur,
+    required this.lat,
+    required this.lng,
+    this.isMine = false,
   });
 
   bool get isFull => cur >= max; // 최대 인원 모집 완료 시 마감 상태로 전환
@@ -103,15 +112,84 @@ class _HomeTabState extends State<HomeTab> {
     {'icon':'✅','msg':'이용 내역이 정산되었습니다.',                 'time':'1시간 전'},
   ];
 
+  void _onTripsChanged() {
+    _fetchServerPins(moveToNewest: true);
+  }
+
+  Future<void> _fetchServerPins({bool moveToNewest = false}) async {
+    final token = AuthSession.token ?? '';
+    if (token.isEmpty) return;
+
+    final trips = await TripService.getTrips(token: token);
+
+    final serverPins = trips.map<RidePin>((trip) {
+      final departTimeText = (trip['depart_time'] ?? '').toString();
+      final parsedTime = DateTime.tryParse(departTimeText)?.toLocal();
+
+      final timeText = parsedTime == null
+          ? ''
+          : '${parsedTime.hour.toString().padLeft(2, '0')}:${parsedTime.minute.toString().padLeft(2, '0')}';
+
+      final participants = trip['participants'];
+      String hostId = 'leader';
+
+      if (participants is List && participants.isNotEmpty) {
+        final leader = participants.firstWhere(
+          (p) => p['role'] == 'LEADER',
+          orElse: () => participants.first,
+        );
+
+        hostId = (leader['nickname'] ?? 'user_${leader['user']}').toString();
+      }
+
+      return RidePin(
+        id: trip['id'].toString(),
+        hostId: (trip['host_nickname'] ?? hostId).toString(),
+        dept: (trip['depart_name'] ?? '').toString(),
+        dest: (trip['arrive_name'] ?? '').toString(),
+        time: timeText,
+        max: trip['capacity'] ?? 0,
+        cur: trip['current_count'] ?? 0,
+        lat: double.tryParse(trip['depart_lat'].toString()) ?? 0.0,
+        lng: double.tryParse(trip['depart_lng'].toString()) ?? 0.0,
+        isMine: trip['is_mine'] == true || (trip['host_nickname'] ?? hostId).toString() == (AuthSession.username ?? ''),
+      );
+    }).toList();
+
+    if (!mounted) return;
+
+    globalPins = serverPins;
+    _lastPinCount = globalPins.length;
+
+    if (moveToNewest && globalPins.isNotEmpty && _mapController != null) {
+      final newestPin = globalPins.first;
+      _mapCenterLat = newestPin.lat;
+      _mapCenterLng = newestPin.lng;
+      _mapController!.setCenter(LatLng(newestPin.lat, newestPin.lng));
+      _mapController!.setLevel(4);
+    }
+
+    _updateVisiblePins(_mapCenterLat, _mapCenterLng);
+
+    if (_isMapReady) {
+      await _refreshMapMarkers();
+    }
+  }
+
   // 생명주기 관리
   @override
   void initState() {
     super.initState();
     _initLocation();
+    _fetchServerPins();
+
+    TripService.tripsRefreshNotifier.addListener(_onTripsChanged);
   }
 
   @override
   void dispose() {
+    TripService.tripsRefreshNotifier.removeListener(_onTripsChanged);
+
     _positionStream?.cancel(); // 실시간 위치 스트림 해제
     _sheetController.dispose();
     super.dispose();
@@ -513,6 +591,7 @@ class _HomeTabState extends State<HomeTab> {
 
         // 지도 준비 완료 상태 업데이트
         setState(() => _isMapReady = true);
+        await _refreshMapMarkers();
       },
       onMarkerTap: (markerId, latLng, zoomLevel) {
         _onMarkerTap(markerId);
@@ -711,33 +790,46 @@ class _HomeTabState extends State<HomeTab> {
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: pin.isFull ? AppColors.gray : AppColors.primary,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      elevation: 0,
-                    ),
-                    onPressed: pin.isFull ? null : () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => RideJoinScreen(
-                            pin: {
-                              'hostId': pin.hostId,
-                              'dept': pin.dept,
-                              'dest': pin.dest,
-                              'time': pin.time,
-                              'max': pin.max,
-                              'cur': pin.cur,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: pin.isMine || pin.isFull
+                            ? const Color(0xFFE5E7EB)
+                            : AppColors.primary,
+                        disabledBackgroundColor: const Color(0xFFE5E7EB),
+                        disabledForegroundColor: AppColors.gray,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        elevation: 0,
+                      ),
+                      onPressed: pin.isMine || pin.isFull
+                          ? null
+                          : () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => RideJoinScreen(
+                                    pin: {
+                                      'id': pin.id,
+                                      'hostId': pin.hostId,
+                                      'dept': pin.dept,
+                                      'dest': pin.dest,
+                                      'time': pin.time,
+                                      'max': pin.max,
+                                      'cur': pin.cur,
+                                    },
+                                  ),
+                                ),
+                              );
                             },
-                          ),
-                        ),
-                      );
-                    },
-                    child: Text(pin.isFull ? '마감된 팀입니다' : '참여하기',
-                        style: const TextStyle(fontWeight: FontWeight.w700)),
-                  ),
+                      child: Text(
+                        pin.isMine
+                            ? '내가 생성한 모집글입니다'
+                            : pin.isFull
+                                ? '마감된 팀입니다'
+                                : '참여하기',
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ),
                 ),
               ]) : const SizedBox.shrink(),
             ),

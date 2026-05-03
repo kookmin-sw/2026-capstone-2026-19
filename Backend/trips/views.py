@@ -20,7 +20,7 @@ class TripCreateListView(APIView):
     def get(self, request):
         # 열려있는 핀 목록만 조회
         trips = Trip.objects.filter(status=Trip.StatusChoices.OPEN).order_by('-created_at')
-        serializer = TripSerializer(trips, many=True)
+        serializer = TripSerializer(trips, many=True, context={'request': request})
         return Response(serializer.data)
 
     def post(self, request):
