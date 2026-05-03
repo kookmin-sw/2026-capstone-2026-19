@@ -107,9 +107,9 @@ class TripJoinView(APIView):
                 TripParticipant.objects.create(
                     trip=trip,
                     user=request.user,
-                    role=TripParticipant.RoleChoices.PASSENGER,  # 일반 탑승객 역할
+                    role=TripParticipant.RoleChoices.MEMBER,  # 일반 탑승객 역할
                     seat_position=django_seat,
-                    status="JOINED"  # 가입 완료 상태
+                    status=TripParticipant.StatusChoices.JOINED  # 가입 완료 상태
                 )
 
                 # 만약 방금 내가 들어가서 정원이 다 찼다면, 핀 상태를 마감(CLOSED)으로 변경

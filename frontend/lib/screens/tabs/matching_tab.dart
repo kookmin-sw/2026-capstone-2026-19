@@ -1162,9 +1162,14 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
     setState(() => _isLoading = true);
 
     // 1. 서버에 참여 요청 보내기
+    final rawTripId = widget.pin['id'];
+    final int tripId = rawTripId is int
+        ? rawTripId
+        : int.parse(rawTripId.toString());
+
     final result = await TripService.joinTrip(
-      token: AuthSession.token ?? '', // 실제 토큰으로 교체 필요
-      tripId: widget.pin['id'],      // 전달받은 핀 ID 사용
+      token: AuthSession.token ?? '',
+      tripId: tripId,
       seatPosition: _selectedSeat!,
     );
 
@@ -1197,6 +1202,7 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
                       return ChatRoomScreen(
                         room: ChatRoomModel(
                           id: tripId,
+                          tripId: tripId,
                           name: 'Trip #$tripId 채팅방',
                           lastMessage: '채팅방이 생성되었습니다.',
                           time: widget.pin['time']?.toString() ?? '',

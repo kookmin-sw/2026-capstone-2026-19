@@ -13,7 +13,8 @@ import '../../config/app_config.dart';
 
 // ── 채팅방 모델 ──────────────────────────────────
 class ChatRoomModel {
-  final int id; // 백엔드 trip_id
+  final int id; // chat_room_id
+  final int tripId; // 실제 trip_id
   final String name;
   final String lastMessage;
   final String time;
@@ -22,6 +23,7 @@ class ChatRoomModel {
 
   const ChatRoomModel({
     required this.id,
+    required this.tripId,
     required this.name,
     required this.lastMessage,
     required this.time,
@@ -32,6 +34,7 @@ class ChatRoomModel {
   factory ChatRoomModel.fromJson(Map<String, dynamic> json) {
     return ChatRoomModel(
       id: json['id'],
+      tripId: json['trip_id'],
       name: json['trip_title'] ?? "새 채팅방",
       lastMessage: json['last_message'] ?? "채팅방이 생성되었습니다.",
       time: _formatDate(json['created_at'] ?? ""),
@@ -45,7 +48,9 @@ class ChatRoomModel {
     try {
       final DateTime dt = DateTime.parse(dateStr).toLocal();
       return "${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
-    } catch (e) { return dateStr; }
+    } catch (e) {
+      return dateStr;
+    }
   }
 }
 
@@ -305,6 +310,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   void initState() {
     super.initState();
     _connectWebSocket();
+    _loadPendingSettlementsForThisRoom();
   }
 
   void _connectWebSocket() {
@@ -360,6 +366,46 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     });
   }
 
+  Future<void> _loadPendingSettlementsForThisRoom() async {
+    try {
+      final settlements = await SettlementService.getMyPaySettlements(
+        token: AuthSession.token ?? '',
+      );
+
+      final roomSettlements = settlements.where((item) {
+        final map = Map<String, dynamic>.from(item as Map);
+        final tripId = _toInt(map['trip_id']);
+        final status = map['status']?.toString();
+
+        return tripId == widget.room.tripId &&
+            ['REQUEST', 'LINK_OPENED', 'PAID_SELF'].contains(status);
+      }).toList();
+
+      if (!mounted || roomSettlements.isEmpty) return;
+
+      setState(() {
+        for (final item in roomSettlements) {
+          final map = Map<String, dynamic>.from(item as Map);
+
+          _messages.add(
+            _Message(
+              id: 'settlement_${map['id']}',
+              userId: 'system',
+              text: '정산 요청이 도착했습니다.',
+              time: TimeOfDay.now().format(context),
+              isMe: false,
+              isSettlement: true,
+              settlement: SettlementMessage.fromJson(map),
+            ),
+          );
+        }
+      });
+
+      _scrollToBottom();
+    } catch (e) {
+      print('정산 요청 목록 불러오기 실패: $e');
+    }
+  }
 
   void _sendMessage() {
     final text = _inputCtrl.text.trim();
@@ -741,7 +787,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
       final uploadResult = await SettlementService.uploadReceiptImage(
         token: AuthSession.token ?? '',
-        tripId: widget.room.id,
+        tripId: widget.room.tripId,
         imageFile: File(pickedFile.path),
       );
 
@@ -891,13 +937,13 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
       await SettlementService.upsertPaymentChannel(
         token: AuthSession.token ?? '',
-        tripId: widget.room.id,
+        tripId: widget.room.tripId,
         kakaopayLink: link,
       );
 
       final settlements = await SettlementService.createSettlements(
         token: AuthSession.token ?? '',
-        tripId: widget.room.id,
+        tripId: widget.room.tripId,
       );
 
       if (!mounted) return;
