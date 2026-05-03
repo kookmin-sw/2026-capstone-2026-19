@@ -309,9 +309,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
   final ImagePicker _picker = ImagePicker();
   final TextEditingController _settlementAmountCtrl = TextEditingController();
-  final TextEditingController _kakaoPayLinkCtrl = TextEditingController(
-    text: 'https://qr.kakaopay.com/test-link',
-  );
+  final TextEditingController _kakaoPayLinkCtrl = TextEditingController();
 
   int? _currentReceiptId;
   String? _currentReceiptImageUrl;
@@ -1316,6 +1314,19 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         _settlementAmountCtrl.text = extractedAmount.toString();
       }
 
+      try {
+        final channel = await SettlementService.getPaymentChannel(
+          token: AuthSession.token ?? '',
+          tripId: widget.room.tripId,
+        );
+
+        final savedLink = channel['kakaopay_link']?.toString() ?? '';
+        _kakaoPayLinkCtrl.text = savedLink;
+      } catch (e) {
+        _kakaoPayLinkCtrl.clear();
+        print('송금 링크 불러오기 실패: $e');
+      }
+
       if (!mounted) return;
 
       _showLeaderSettlementDialog();
@@ -1462,21 +1473,11 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       if (settlements.isNotEmpty) {
         final first = Map<String, dynamic>.from(settlements.first as Map);
 
-        setState(() {
-          _messages.add(
-            _Message(
-              id: DateTime.now().millisecondsSinceEpoch.toString(),
-              userId: widget.myNickname,
-              text: '정산 요청을 보냈습니다.',
-              time: TimeOfDay.now().format(context),
-              isMe: true,
-              isSettlement: true,
-              settlement: SettlementMessage.fromJson(first),
-            ),
-          );
-        });
-
-        _scrollToBottom();
+        _channel?.sink.add(jsonEncode({
+          'type': 'settlement_request',
+          'message': '정산 요청이 도착했습니다.',
+          'settlement': first,
+        }));
       }
     } catch (e) {
       if (!mounted) return;

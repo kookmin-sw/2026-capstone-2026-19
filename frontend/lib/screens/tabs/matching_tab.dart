@@ -9,6 +9,7 @@ import '../location_search_screen.dart';
 import 'home_tab.dart' as home;
 import '../../service/trip_service.dart';
 import 'message_tab.dart';
+import 'dart:async';
 
 // 매칭 탭 전체 레이아웃 (내부 상태 변경 시 화면 리빌드)
 class MatchingTab extends StatefulWidget {
@@ -19,53 +20,65 @@ class MatchingTab extends StatefulWidget {
 }
 
 // 매칭 탭의 실제 로직 & UI 담당 클래스
+// 매칭 탭의 실제 로직 & UI 담당 클래스
 class _MatchingTabState extends State<MatchingTab>
-    with SingleTickerProviderStateMixin { // 탭바 전환 시 애니메이션 동작
-    List<dynamic> _filteredPins = [];
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  Timer? _tripsPollingTimer;
 
-  late TabController _tabController; // 검색, 생성 탭 전환 제어 컨트롤러
-  final TextEditingController _searchCtrl = TextEditingController(); // 검색창 입력 제어
-  String _searchQuery = ''; // 현재 입력된 검색어 저장
-  String? _selectedCardId; // 카드 펼침 상태
+  List<dynamic> _filteredPins = [];
 
-  // 핀 생성 폼 컨트롤러
-  final TextEditingController _deptCtrl = TextEditingController();  // 출발지
-  final TextEditingController _destCtrl = TextEditingController();  // 목적지
-  final TextEditingController _kakaoCtrl = TextEditingController();  // 카카오페이 링크
-  int _maxPeople = 2;  // 최대 모집 인원 수 (초기값:2)
-  String? _selectedSeat;  // 생성 시 대표자의 좌석 선택 상태 (선택 안 했을 경우 null)
-  TimeOfDay _selectedTime = TimeOfDay.now();  // 출발 시간 (초기값:현재 시각)
-  bool _pinCreated = false;  // 핀 생성 시 성공 배너 표시 여부
+  final TextEditingController _searchCtrl = TextEditingController();
+  String _searchQuery = '';
+  String? _selectedCardId;
+
+  final TextEditingController _deptCtrl = TextEditingController();
+  final TextEditingController _destCtrl = TextEditingController();
+  final TextEditingController _kakaoCtrl = TextEditingController();
+
+  int _maxPeople = 2;
+  String? _selectedSeat;
+  TimeOfDay _selectedTime = TimeOfDay.now();
+
+  bool _pinCreated = false;
   bool _isLoading = false;
   List<home.RidePin> _serverPins = [];
   bool _isFetching = false;
 
-  // 출발지/목적지 좌표 저장
   double? _deptLat;
   double? _deptLng;
   double? _destLat;
   double? _destLng;
 
-  // 좌석 옵션 상수
   static const _seats = ['조수석', '왼쪽 창가', '가운데', '오른쪽 창가'];
+
+  @override
+  void initState() {
+    super.initState();
+
+    _tabController = TabController(length: 2, vsync: this);
+
+    _fetchTrips();
+
+    TripService.tripsRefreshNotifier.addListener(_onTripsChanged);
+
+    _tripsPollingTimer = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) {
+        if (mounted) {
+          _fetchTrips();
+        }
+      },
+    );
+  }
 
   void _onTripsChanged() {
     _fetchTrips();
   }
 
-  // 생명주기 관리
-  @override
-  void initState() { // 트리에 위젯 첫 삽입 시 초기 설정 수행
-    super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-    _fetchTrips();
-
-    TripService.tripsRefreshNotifier.addListener(_onTripsChanged);
-  }
-
-
   @override
   void dispose() {
+    _tripsPollingTimer?.cancel();
     TripService.tripsRefreshNotifier.removeListener(_onTripsChanged);
 
     _tabController.dispose();
@@ -73,6 +86,7 @@ class _MatchingTabState extends State<MatchingTab>
     _deptCtrl.dispose();
     _destCtrl.dispose();
     _kakaoCtrl.dispose();
+
     super.dispose();
   }
 
@@ -719,6 +733,9 @@ class _MatchingTabState extends State<MatchingTab>
 
     if (result['success']) {
       final int newTripId = result['id'];
+      await _fetchTrips();
+      TripService.tripsRefreshNotifier.notifyListeners();
+      TripService.chatRoomsRefreshNotifier.notifyListeners();
 
       // 2. 채팅방 생성 API 호출
       final chatResult = await TripService.createChatRoom(
@@ -1178,6 +1195,18 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
 
     // 2. 결과 처리
     if (result['success']) {
+       final chatResult = await TripService.createChatRoom(
+        token: AuthSession.token ?? '',
+        tripId: tripId,
+      );
+
+      TripService.tripsRefreshNotifier.notifyListeners();
+      TripService.chatRoomsRefreshNotifier.notifyListeners();
+
+      final int chatRoomId = chatResult['success']
+          ? int.tryParse(chatResult['id'].toString()) ?? tripId
+          : tripId;
+
       showDialog(
         context: context,
         builder: (_) => AlertDialog(
@@ -1201,15 +1230,15 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
                         : int.parse(widget.pin['id'].toString());
                       return ChatRoomScreen(
                         room: ChatRoomModel(
-                          id: tripId,
+                          id: chatRoomId,
                           tripId: tripId,
-                          name: 'Trip #$tripId 채팅방',
+                          name: '${widget.pin['dept']} -> ${widget.pin['dest']}',
                           lastMessage: '채팅방이 생성되었습니다.',
                           time: widget.pin['time']?.toString() ?? '',
                           unreadCount: 0,
-                          pinnedNotice: '만날 위치를 공유해주세요',
+                          pinnedNotice: '택시 번호 및 만날 위치를 꼭 공유해주세요!',
                         ),
-                        myNickname: '나',
+                        myNickname: AuthSession.username ?? '나',
                       );
                     },
                   ),

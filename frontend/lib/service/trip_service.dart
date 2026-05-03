@@ -48,6 +48,7 @@ class TripService {
         'depart_time': departTime.toIso8601String(),
         'capacity': capacity,
         'seat_position': seatPosition,
+        'kakaopay_link': kakaoLink,
       };
 
       print('🚕 CREATE TRIP REQUEST BODY: ${jsonEncode(requestBody)}');

@@ -189,9 +189,6 @@ class _HomeTabState extends State<HomeTab> {
   @override
   void dispose() {
     TripService.tripsRefreshNotifier.removeListener(_onTripsChanged);
-
-    _positionStream?.cancel(); // 실시간 위치 스트림 해제
-    _sheetController.dispose();
     super.dispose();
   }
 

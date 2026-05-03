@@ -239,6 +239,28 @@ class SettlementService {
     );
   }
 
+  static Future<Map<String, dynamic>> getPaymentChannel({
+    required String token,
+    required int tripId,
+  }) async {
+    final uri = Uri.parse(
+      '$serverUrl/api/settlements/trips/$tripId/payment-channel/detail/',
+    );
+
+    final response = await http.get(
+      uri,
+      headers: _headers(token),
+    );
+
+    final data = jsonDecode(utf8.decode(response.bodyBytes));
+
+    if (response.statusCode == 200) {
+      return Map<String, dynamic>.from(data);
+    }
+
+    throw Exception(data['detail'] ?? data['message'] ?? data.toString());
+    }
+
   /// 리더가 참여자별 정산 요청 생성
   /// POST /api/settlements/trips/<trip_id>/settlements/create/
   static Future<List<dynamic>> createSettlements({

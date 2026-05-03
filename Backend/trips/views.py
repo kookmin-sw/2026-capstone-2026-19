@@ -52,6 +52,20 @@ class TripCreateListView(APIView):
                         status=TripParticipant.StatusChoices.JOINED
                     )
 
+                    kakaopay_link = data.get("kakaopay_link")
+
+                    if kakaopay_link:
+                        from settlements.models import PaymentChannel
+
+                        PaymentChannel.objects.update_or_create(
+                            trip=trip,
+                            defaults={
+                                "provider": "KAKAOPAY",
+                                "kakaopay_link": kakaopay_link,
+                                "updated_by": request.user,
+                            },
+                        )
+
                     return Response(serializer.data, status=status.HTTP_201_CREATED)
                 return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
