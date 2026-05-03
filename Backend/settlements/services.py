@@ -6,6 +6,15 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from trips.models import TripParticipant
 from .models import PaymentChannel, Receipt, Settlement, SettlementProof
+import base64
+import json
+import mimetypes
+import time
+import uuid
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+
+from django.conf import settings
 
 
 def _validate_trip_leader(*, trip, user):
@@ -69,15 +78,92 @@ def extract_total_amount_from_text(raw_text: str):
 
 def run_ocr_for_receipt(receipt: Receipt) -> str:
     """
-    실제 OCR API 연동 위치.
-    지금은 구조만 먼저 만들고 임시 OCR 결과를 반환한다.
-    이후 Naver Clova OCR 또는 Google Vision OCR로 교체한다.
+    Naver CLOVA OCR API를 호출하여 영수증/이용내역 이미지의 전체 텍스트를 반환한다.
+    반환된 원문에서 금액 추출은 extract_total_amount_from_text()가 담당한다.
     """
-    # TODO: OCR API 연동
-    # 임시 테스트용으로는 아래처럼 문자열을 반  환해서 흐름을 확인할 수 있음.
-    # return "결제금액 18400원"
+    ocr_url = getattr(settings, "CLOVA_OCR_URL", "")
+    ocr_secret = getattr(settings, "CLOVA_OCR_SECRET", "")
 
-    return "카카오 T 택시 이용내역 결제금액 18,400원"
+    if not ocr_url or not ocr_secret:
+        raise ValidationError("CLOVA OCR URL 또는 Secret Key가 설정되지 않았습니다.")
+
+    if not receipt.image:
+        raise ValidationError("현재 CLOVA OCR 테스트는 업로드된 이미지 파일 기준으로 처리합니다.")
+
+    file_name = receipt.image.name
+    mime_type, _ = mimetypes.guess_type(file_name)
+    image_format = "jpg"
+
+    if mime_type:
+        image_format = mime_type.split("/")[-1]
+        if image_format == "jpeg":
+            image_format = "jpg"
+
+    receipt.image.open("rb")
+    try:
+        image_bytes = receipt.image.read()
+    finally:
+        receipt.image.close()
+
+    image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+
+    request_body = {
+        "version": "V2",
+        "requestId": str(uuid.uuid4()),
+        "timestamp": int(time.time() * 1000),
+        "images": [
+            {
+                "format": image_format,
+                "name": "receipt",
+                "data": image_base64,
+            }
+        ],
+    }
+
+    request_data = json.dumps(request_body).encode("utf-8")
+
+    request = Request(
+        ocr_url,
+        data=request_data,
+        headers={
+            "Content-Type": "application/json",
+            "X-OCR-SECRET": ocr_secret,
+        },
+        method="POST",
+    )
+
+    try:
+        with urlopen(request, timeout=15) as response:
+            response_body = response.read().decode("utf-8")
+            result = json.loads(response_body)
+
+    except HTTPError as e:
+        error_body = e.read().decode("utf-8", errors="ignore")
+        raise ValidationError(f"CLOVA OCR 호출 실패: HTTP {e.code} / {error_body}")
+
+    except URLError as e:
+        raise ValidationError(f"CLOVA OCR 연결 실패: {e.reason}")
+
+    except Exception as e:
+        raise ValidationError(f"CLOVA OCR 처리 중 오류가 발생했습니다: {str(e)}")
+
+    images = result.get("images", [])
+    if not images:
+        raise ValidationError("CLOVA OCR 응답에 이미지 분석 결과가 없습니다.")
+
+    fields = images[0].get("fields", [])
+    texts = [
+        field.get("inferText", "")
+        for field in fields
+        if field.get("inferText")
+    ]
+
+    raw_text = " ".join(texts).strip()
+
+    if not raw_text:
+        raise ValidationError("CLOVA OCR에서 인식된 텍스트가 없습니다.")
+
+    return raw_text
 
 
 @transaction.atomic

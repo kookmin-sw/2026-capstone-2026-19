@@ -11,13 +11,14 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 import os
 from dotenv import load_dotenv
-
-load_dotenv()
-
 from pathlib import Path
+
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+
+load_dotenv(BASE_DIR / ".env")
 
 
 # Quick-start development settings - unsuitable for production
@@ -144,6 +145,8 @@ USE_TZ = True
 STATIC_URL = 'static/'
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
+CLOVA_OCR_URL = os.getenv("CLOVA_OCR_URL", "")
+CLOVA_OCR_SECRET = os.getenv("CLOVA_OCR_SECRET", "")
 AUTH_USER_MODEL = "accounts.User"
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
