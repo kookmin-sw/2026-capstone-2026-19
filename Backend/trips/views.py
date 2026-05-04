@@ -20,7 +20,7 @@ class TripCreateListView(APIView):
     def get(self, request):
         # 열려있는 핀 목록만 조회
         trips = Trip.objects.filter(status=Trip.StatusChoices.OPEN).order_by('-created_at')
-        serializer = TripSerializer(trips, many=True)
+        serializer = TripSerializer(trips, many=True, context={'request': request})
         return Response(serializer.data)
 
     def post(self, request):
@@ -51,6 +51,20 @@ class TripCreateListView(APIView):
                         seat_position=django_seat,
                         status=TripParticipant.StatusChoices.JOINED
                     )
+
+                    kakaopay_link = data.get("kakaopay_link")
+
+                    if kakaopay_link:
+                        from settlements.models import PaymentChannel
+
+                        PaymentChannel.objects.update_or_create(
+                            trip=trip,
+                            defaults={
+                                "provider": "KAKAOPAY",
+                                "kakaopay_link": kakaopay_link,
+                                "updated_by": request.user,
+                            },
+                        )
 
                     return Response(serializer.data, status=status.HTTP_201_CREATED)
                 return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -107,9 +121,9 @@ class TripJoinView(APIView):
                 TripParticipant.objects.create(
                     trip=trip,
                     user=request.user,
-                    role=TripParticipant.RoleChoices.PASSENGER,  # 일반 탑승객 역할
+                    role=TripParticipant.RoleChoices.MEMBER,  # 일반 탑승객 역할
                     seat_position=django_seat,
-                    status="JOINED"  # 가입 완료 상태
+                    status=TripParticipant.StatusChoices.JOINED  # 가입 완료 상태
                 )
 
                 # 만약 방금 내가 들어가서 정원이 다 찼다면, 핀 상태를 마감(CLOSED)으로 변경
