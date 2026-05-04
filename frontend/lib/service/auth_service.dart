@@ -10,6 +10,38 @@ class AuthService {
   // [실제 통신] 백엔드(Django)와 연결된 API
   // ============================================================
 
+  static String _signupErrorMessage(Map<String, dynamic> data) {
+    final raw = data['message'] ?? data;
+
+    final text = raw.toString();
+
+    final hasUsernameError =
+        text.contains('username') ||
+        text.contains('user with this username already exists');
+
+    final hasPhoneError =
+        text.contains('phone_number') ||
+        text.contains('user with this phone number already exists');
+
+    if (hasUsernameError && hasPhoneError) {
+      return '이미 사용 중인 아이디와 전화번호입니다.';
+    }
+
+    if (hasUsernameError) {
+      return '이미 사용 중인 아이디입니다.';
+    }
+
+    if (hasPhoneError) {
+      return '이미 사용 중인 전화번호입니다.';
+    }
+
+    if (text.contains('password')) {
+      return '비밀번호 형식을 확인해주세요.';
+    }
+
+    return data['message']?.toString() ?? '회원가입에 실패했습니다.';
+  }
+
   // 1. 옥토모 역발상 인증 - 6자리 코드 발급 API
   static Future<Map<String, dynamic>> sendVerificationCode({required String phone}) async {
     try {
@@ -82,12 +114,20 @@ class AuthService {
         }),
       );
 
-      if (response.statusCode == 201 || response.statusCode == 200) {
-        return {'success': true};
-      } else {
-        final data = jsonDecode(utf8.decode(response.bodyBytes));
-        return {'success': false, 'message': data['message'] ?? '회원가입 실패'};
+      final Map<String, dynamic> data = jsonDecode(utf8.decode(response.bodyBytes));
+
+      if ((response.statusCode == 201 || response.statusCode == 200) &&
+          data['success'] == true) {
+        return {
+          'success': true,
+          'message': data['message'] ?? '회원가입 성공',
+        };
       }
+
+      return {
+        'success': false,
+        'message': _signupErrorMessage(data),
+      };
     } catch (e) {
       return {'success': false, 'message': '서버 연결 오류가 발생했습니다. 네트워크 상태를 확인해주세요.'};
     }
