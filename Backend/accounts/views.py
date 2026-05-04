@@ -59,7 +59,6 @@ def _generate_six_digit_code() -> str:
     """6자리 랜덤 숫자 코드 생성"""
     return str(random.randint(100000, 999999))
 
-
 class SignupView(APIView):
     permission_classes = [AllowAny]
     
@@ -69,11 +68,16 @@ class SignupView(APIView):
 
         # 3. 문지기가 검사해서 통과하면 (is_valid)
         if serializer.is_valid():
-            serializer.save()  # 자동으로 User.objects.create_user()가 실행됨!
-            return Response({'success': True, 'message': '회원가입 성공!'})
-
+            serializer.save()
+            return Response(
+                {'success': True, 'message': '회원가입 성공!'},
+                status=status.HTTP_201_CREATED
+            )
         # 4. 통과 실패하면 에러 반환
-        return Response({'success': False, 'message': serializer.errors})
+        return Response(
+            {'success': False, 'message': serializer.errors},
+            status=status.HTTP_400_BAD_REQUEST
+        )
 
 class LoginView(APIView):
     permission_classes = [AllowAny]
