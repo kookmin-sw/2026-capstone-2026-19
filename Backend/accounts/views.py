@@ -306,3 +306,20 @@ class WithdrawView(APIView):
             "is_blocked": is_blocked,
             "message": "탈퇴 처리가 완료되었습니다." if not is_blocked else "탈퇴 완료 (1년 재가입 제한)"
         }, status=status.HTTP_200_OK)
+
+class UserProfileView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        return Response({
+            'success': True,
+            'data': {
+                'user_real_name': user.user_real_name,
+                'username': user.username,
+                'nickname': user.nickname,
+                'trust_score': float(user.trust_score),  # Decimal을 float로 변환
+                'successful_streak_count': user.successful_streak_count,
+                'profile_img_url': user.profile_img_url.url if user.profile_img_url else None,
+            }
+        }, status=status.HTTP_200_OK)

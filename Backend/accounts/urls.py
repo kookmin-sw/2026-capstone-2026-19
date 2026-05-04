@@ -12,6 +12,9 @@ urlpatterns = [
     path('history/', views.TripHistoryView.as_view(), name='trip-history'),
     path('recent-companions/', views.RecentCompanionsView.as_view(), name='recent-companions'),
     path('withdraw/', views.WithdrawView.as_view(), name='withdraw'),
+    path('profile/', views.UserProfileView.as_view(), name='user-profile'),
+
+    path('profile/image/', views.ProfileImageUpdateView.as_view(), name='update-profile-image'),
 
     # 2. 로그인
     path('login/', LoginView.as_view(), name='login'),
