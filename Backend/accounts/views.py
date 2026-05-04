@@ -59,6 +59,9 @@ def _generate_six_digit_code() -> str:
     return str(random.randint(100000, 999999))
 
 class SignupView(APIView):
+    authentication_classes = ()
+    permission_classes = [AllowAny]
+
     def post(self, request):
         # 2. View에 들어온 데이터를 Serializer(문지기)에게 넘겨줍니다. [연결 완료!]
         serializer = SignUpSerializer(data=request.data)
@@ -72,6 +75,9 @@ class SignupView(APIView):
         return Response({'success': False, 'message': serializer.errors})
 
 class LoginView(APIView):
+    authentication_classes = ()
+    permission_classes = [AllowAny]
+
     def post(self, request):
         # Flutter에서 '아이디'를 username 키로 보냅니다.
         username = request.data.get('username')

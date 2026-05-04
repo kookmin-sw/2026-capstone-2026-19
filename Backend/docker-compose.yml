@@ -5,9 +5,9 @@ services:
   db:
     image: postgres:15
     environment:
-      POSTGRES_DB: crescit_db
-      POSTGRES_USER: crescit_user
-      POSTGRES_PASSWORD: supersecretpassword # 실제 배포 시엔 안전하게 관리!
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data # 컨테이너가 꺼져도 데이터가 날아가지 않게 저장
 
@@ -19,6 +19,9 @@ services:
   web:
     build: . # 현재 폴더의 Dockerfile을 읽어서 이미지를 굽습니다.
     command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - .:/app
+    working_dir: /app
     ports:
       - "8000:8000"
     environment:
