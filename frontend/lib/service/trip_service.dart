@@ -4,7 +4,7 @@ import 'package:intl/intl.dart';
 
 class TripService {
   // 프로젝트 전체에서 공통으로 사용할 베이스 주소
-  static const String serverUrl = 'http://3.35.37.129:8000';
+  static const String serverUrl = 'http://10.0.2.2:8000';
   static const String tripApiUrl = '$serverUrl/api/trips';
 
   // 1. 핀 생성 API
