@@ -13,15 +13,30 @@ class TripSerializer(serializers.ModelSerializer):
     # 참여자 상세 정보도 같이 보고 싶을 때 사용
     participants = TripParticipantSerializer(source='trip_participants', many=True, read_only=True)
 
+    leader_user_id = serializers.IntegerField(source='leader_user.id', read_only=True)
+    host_nickname = serializers.SerializerMethodField()
+    is_mine = serializers.SerializerMethodField()
+
     class Meta:
         model = Trip
         fields = [
-            'id', 'depart_name', 'depart_lat', 'depart_lng',
+            'id',
+            'depart_name', 'depart_lat', 'depart_lng',
             'arrive_name', 'arrive_lat', 'arrive_lng',
             'depart_time', 'capacity', 'status', 'estimated_fare',
-            'current_count', 'participants'
+            'current_count', 'participants',
+            'leader_user_id', 'host_nickname', 'is_mine',
         ]
 
     def get_current_count(self, obj):
         # JOINED 상태인 멤버만 카운트
         return obj.trip_participants.filter(status="JOINED").count()
+
+    def get_host_nickname(self, obj):
+        return obj.leader_user.nickname or obj.leader_user.username
+
+    def get_is_mine(self, obj):
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
+            return False
+        return obj.leader_user_id == request.user.id

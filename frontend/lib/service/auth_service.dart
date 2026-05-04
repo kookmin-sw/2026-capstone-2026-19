@@ -6,7 +6,6 @@ class AuthService {
 
   // 에뮬레이터 기준 localhost 주소. 실기기 테스트 시 192.168.x.x (PC의 IP)로 변경해야 합니다.
   static String get baseUrl => '${AppConfig.apiBaseUrl}/api/accounts';
-
   // ============================================================
   // [실제 통신] 백엔드(Django)와 연결된 API
   // ============================================================

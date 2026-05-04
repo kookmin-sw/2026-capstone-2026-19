@@ -4,7 +4,7 @@ from .models import ChatRoom, ChatMessage
 
 
 class ChatRoomSerializer(serializers.ModelSerializer):
-    trip_id = serializers.IntegerField(write_only=True)
+    trip_id = serializers.IntegerField()
     trip_title = serializers.SerializerMethodField()
     last_message = serializers.SerializerMethodField()
     unread_count = serializers.SerializerMethodField()
