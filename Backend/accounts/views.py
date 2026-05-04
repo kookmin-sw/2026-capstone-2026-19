@@ -60,8 +60,9 @@ def _generate_six_digit_code() -> str:
     return str(random.randint(100000, 999999))
 
 class SignupView(APIView):
+    authentication_classes = ()
     permission_classes = [AllowAny]
-    
+
     def post(self, request):
         # 2. View에 들어온 데이터를 Serializer(문지기)에게 넘겨줍니다. [연결 완료!]
         serializer = SignUpSerializer(data=request.data)
@@ -80,8 +81,11 @@ class SignupView(APIView):
         )
 
 class LoginView(APIView):
+
+
+    authentication_classes = ()
     permission_classes = [AllowAny]
-    
+
     def post(self, request):
         # Flutter에서 '아이디'를 username 키로 보냅니다.
         username = request.data.get('username')
@@ -140,7 +144,7 @@ class VerifyCodeView(APIView):
     """옥토모 역발상 인증 - SMS 발송 여부 확인"""
     authentication_classes = ()  # 인증 우회 (글로벌 인증 설정 무시)
     permission_classes = [AllowAny]  # 누구나 접근 가능
-    
+
     def post(self, request):
         phone_number = request.data.get('phone', '').strip()
         
