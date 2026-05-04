@@ -1,6 +1,7 @@
 // ============================================================
 // lib/screens/tabs/matching_tab.dart
 // ============================================================
+import '../../service/auth_session.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import '../../utils/colors.dart';
@@ -8,6 +9,8 @@ import '../location_search_screen.dart';
 import 'home_tab.dart' as home;
 import 'active_tab.dart';
 import '../../service/trip_service.dart';
+import 'message_tab.dart';
+import 'dart:async';
 
 // 매칭 탭 전체 레이아웃 (내부 상태 변경 시 화면 리빌드)
 class MatchingTab extends StatefulWidget {
@@ -19,51 +22,73 @@ class MatchingTab extends StatefulWidget {
 
 // 매칭 탭의 실제 로직 & UI 담당 클래스
 class _MatchingTabState extends State<MatchingTab>
-    with SingleTickerProviderStateMixin { // 탭바 전환 시 애니메이션 동작
-    List<dynamic> _filteredPins = [];
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  Timer? _tripsPollingTimer;
 
-  late TabController _tabController; // 검색, 생성 탭 전환 제어 컨트롤러
-  final TextEditingController _searchCtrl = TextEditingController(); // 검색창 입력 제어
-  String _searchQuery = ''; // 현재 입력된 검색어 저장
-  String? _selectedCardId; // 카드 펼침 상태
+  List<dynamic> _filteredPins = [];
 
-  // 핀 생성 폼 컨트롤러
-  final TextEditingController _deptCtrl = TextEditingController();  // 출발지
-  final TextEditingController _destCtrl = TextEditingController();  // 목적지
-  final TextEditingController _kakaoCtrl = TextEditingController();  // 카카오페이 링크
-  int _maxPeople = 2;  // 최대 모집 인원 수 (초기값:2)
-  String? _selectedSeat;  // 생성 시 대표자의 좌석 선택 상태 (선택 안 했을 경우 null)
-  TimeOfDay _selectedTime = TimeOfDay.now();  // 출발 시간 (초기값:현재 시각)
-  bool _pinCreated = false;  // 핀 생성 시 성공 배너 표시 여부
+  final TextEditingController _searchCtrl = TextEditingController();
+  String _searchQuery = '';
+  String? _selectedCardId;
+
+  final TextEditingController _deptCtrl = TextEditingController();
+  final TextEditingController _destCtrl = TextEditingController();
+  final TextEditingController _kakaoCtrl = TextEditingController();
+
+  int _maxPeople = 2;
+  String? _selectedSeat;
+  TimeOfDay _selectedTime = TimeOfDay.now();
+
+  bool _pinCreated = false;
   bool _isLoading = false;
   List<home.RidePin> _serverPins = [];
   bool _isFetching = false;
 
-  // 출발지/목적지 좌표 저장
   double? _deptLat;
   double? _deptLng;
   double? _destLat;
   double? _destLng;
 
-  // 좌석 옵션 상수
   static const _seats = ['조수석', '왼쪽 창가', '가운데', '오른쪽 창가'];
 
-  // 생명주기 관리
   @override
-  void initState() { // 트리에 위젯 첫 삽입 시 초기 설정 수행
+  void initState() {
     super.initState();
+
     _tabController = TabController(length: 2, vsync: this);
+
+    _fetchTrips();
+
+    TripService.tripsRefreshNotifier.addListener(_onTripsChanged);
+
+    _tripsPollingTimer = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) {
+        if (mounted) {
+          _fetchTrips();
+        }
+      },
+    );
+  }
+
+  void _onTripsChanged() {
     _fetchTrips();
   }
 
   @override
-  void dispose() { // 위젯 제거 시 컨트롤러 해제
+  void dispose() {
+    _tripsPollingTimer?.cancel();
+    TripService.tripsRefreshNotifier.removeListener(_onTripsChanged);
+
     _tabController.dispose();
     _searchCtrl.dispose();
-    _deptCtrl.dispose(); _destCtrl.dispose(); _kakaoCtrl.dispose();
+    _deptCtrl.dispose();
+    _destCtrl.dispose();
+    _kakaoCtrl.dispose();
+
     super.dispose();
   }
-
 
   // 매칭 탭 기본 화면 구조 위젯 트리
   @override
@@ -216,11 +241,12 @@ class _MatchingTabState extends State<MatchingTab>
   // 핀 목록 카드 위젯
   Widget _buildSearchCard(home.RidePin pin) {
     final isFull = pin.cur >= pin.max;
-    final isSelected = _selectedCardId == pin.hostId;
+    final isMine = pin.isMine;
+    final isSelected = _selectedCardId == pin.id;
 
     return GestureDetector(
       onTap: () => setState(() =>
-      _selectedCardId = isSelected ? null : pin.hostId),
+      _selectedCardId = isSelected ? null : pin.id),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         margin: const EdgeInsets.only(bottom: 12),
@@ -315,28 +341,47 @@ class _MatchingTabState extends State<MatchingTab>
                     width: double.infinity,
                     child: ElevatedButton(
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: isFull ? AppColors.gray : AppColors.primary,
+                        backgroundColor: isMine || isFull ? AppColors.gray : AppColors.primary,
+                        disabledBackgroundColor: const Color(0xFFE5E7EB),
+                        disabledForegroundColor: AppColors.gray,
                         foregroundColor: Colors.white,
                         elevation: 0,
                         padding: const EdgeInsets.symmetric(vertical: 13),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
-                      onPressed: isFull ? null : () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (_) => RideJoinScreen(pin: {
-                            'id': pin.id, // ✅ 백엔드 연동을 위해 핀 ID 전달 추가 완료
-                            'hostId': pin.hostId,
-                            'dept': pin.dept,
-                            'dest': pin.dest,
-                            'time': pin.time,
-                            'max': pin.max,
-                            'cur': pin.cur,
-                          })),
-                        );
-                      },
-                      child: Text(isFull ? '마감' : '참여하기',
-                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                      onPressed: isMine || isFull
+                          ? null
+                          : () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => RideJoinScreen(
+                                    pin: {
+                                      'id': pin.id,
+                                      'hostId': pin.hostId,
+                                      'dept': pin.dept,
+                                      'dest': pin.dest,
+                                      'time': pin.time,
+                                      'max': pin.max,
+                                      'cur': pin.cur,
+                                    },
+                                  ),
+                                ),
+                              );
+                            },
+                      child: Text(
+                        isMine
+                            ? '내가 생성한 모집글입니다'
+                            : isFull
+                                ? '마감'
+                                : '참여하기',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     ),
                   ),
                 ],
@@ -625,7 +670,7 @@ class _MatchingTabState extends State<MatchingTab>
     if (!mounted) return;
     setState(() => _isFetching = true);
 
-    final List<dynamic> data = await TripService.getTrips(token: 'this-is-a-fake-test-token-12345');
+    final List<dynamic> data = await TripService.getTrips(token: AuthSession.token ?? '');
 
     if (mounted) {
       setState(() {
@@ -639,6 +684,7 @@ class _MatchingTabState extends State<MatchingTab>
           cur: item['current_count'],
           lat: double.parse(item['depart_lat'].toString()),
           lng: double.parse(item['depart_lng'].toString()),
+          isMine: item['is_mine'] == true,
         )).toList();
         _isFetching = false;
       });
@@ -670,7 +716,7 @@ class _MatchingTabState extends State<MatchingTab>
 
     // 1. 핀 생성 API 호출
     final result = await TripService.createTrip(
-      token: 'this-is-a-fake-test-token-12345',
+      token: AuthSession.token ?? '',
       deptName: _deptCtrl.text,
       deptLat: _deptLat!,
       deptLng: _deptLng!,
@@ -687,10 +733,13 @@ class _MatchingTabState extends State<MatchingTab>
 
     if (result['success']) {
       final int newTripId = result['id'];
+      await _fetchTrips();
+      TripService.tripsRefreshNotifier.notifyListeners();
+      TripService.chatRoomsRefreshNotifier.notifyListeners();
 
       // 2. 채팅방 생성 API 호출
       final chatResult = await TripService.createChatRoom(
-        token: 'this-is-a-fake-test-token-12345',
+        token: AuthSession.token ?? '',
         tripId: newTripId,
       );
 
@@ -699,19 +748,21 @@ class _MatchingTabState extends State<MatchingTab>
       } else {
         print("❌ 채팅방 생성 실패: ${chatResult['message']}");
       }
+      await _fetchTrips();
+      TripService.tripsRefreshNotifier.notifyListeners();
 
       // 로컬 리스트 업데이트 및 화면 전환
-      home.globalPins.add(home.RidePin(
-        id: newTripId.toString(),
-        hostId: 'my_username',
-        dept: _deptCtrl.text,
-        dest: _destCtrl.text,
-        time: '${_selectedTime.hour.toString().padLeft(2, '0')}:${_selectedTime.minute.toString().padLeft(2, '0')}',
-        max: _maxPeople,
-        cur: 1,
-        lat: _deptLat!,
-        lng: _deptLng!,
-      ));
+      // home.globalPins.add(home.RidePin(
+      //   id: newTripId.toString(),
+      //   hostId: 'my_username',
+      //   dept: _deptCtrl.text,
+      //   dest: _destCtrl.text,
+      //   time: '${_selectedTime.hour.toString().padLeft(2, '0')}:${_selectedTime.minute.toString().padLeft(2, '0')}',
+      //   max: _maxPeople,
+      //   cur: 1,
+      //   lat: _deptLat!,
+      //   lng: _deptLng!,
+      // ));
 
       setState(() => _pinCreated = true);
 
@@ -1128,9 +1179,14 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
     setState(() => _isLoading = true);
 
     // 1. 서버에 참여 요청 보내기
+    final rawTripId = widget.pin['id'];
+    final int tripId = rawTripId is int
+        ? rawTripId
+        : int.parse(rawTripId.toString());
+
     final result = await TripService.joinTrip(
-      token: 'this-is-a-fake-test-token-12345', // 실제 토큰으로 교체 필요
-      tripId: widget.pin['id'],      // 전달받은 핀 ID 사용
+      token: AuthSession.token ?? '',
+      tripId: tripId,
       seatPosition: _selectedSeat!,
     );
 
@@ -1139,6 +1195,18 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
 
     // 2. 결과 처리
     if (result['success']) {
+       final chatResult = await TripService.createChatRoom(
+        token: AuthSession.token ?? '',
+        tripId: tripId,
+      );
+
+      TripService.tripsRefreshNotifier.notifyListeners();
+      TripService.chatRoomsRefreshNotifier.notifyListeners();
+
+      final int chatRoomId = chatResult['success']
+          ? int.tryParse(chatResult['id'].toString()) ?? tripId
+          : tripId;
+
       showDialog(
         context: context,
         builder: (_) => AlertDialog(
@@ -1155,11 +1223,23 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
                 Navigator.pushReplacement(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => ActiveTabChatBridge(
-                      hostId: widget.pin['hostId'],
-                      dept: widget.pin['dept'],
-                      dest: widget.pin['dest'],
-                    ),
+                    builder: (_) {
+                      final tripId = widget.pin['id'] is int
+                        ? widget.pin['id'] as int
+                        : int.parse(widget.pin['id'].toString());
+                      return ChatRoomScreen(
+                        room: ChatRoomModel(
+                          id: chatRoomId,
+                          tripId: tripId,
+                          name: '${widget.pin['dept']} -> ${widget.pin['dest']}',
+                          lastMessage: '채팅방이 생성되었습니다.',
+                          time: widget.pin['time']?.toString() ?? '',
+                          unreadCount: 0,
+                          pinnedNotice: '택시 번호 및 만날 위치를 꼭 공유해주세요!',
+                        ),
+                        myNickname: AuthSession.username ?? '나',
+                      );
+                    },
                   ),
                 );
                },

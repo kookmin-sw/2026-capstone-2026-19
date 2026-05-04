@@ -4,14 +4,15 @@ import requests
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.authtoken.models import Token
 from django.contrib.auth import authenticate
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from .models import User, WithdrawalBlock
 from .serializers import SignUpSerializer
 from trips.models import TripParticipant
-from rest_framework.permissions import IsAuthenticated, AllowAny
-from rest_framework.parsers import MultiPartParser, FormParser
 from django.utils import timezone
 from datetime import timedelta
 
@@ -58,7 +59,10 @@ def _generate_six_digit_code() -> str:
     """6자리 랜덤 숫자 코드 생성"""
     return str(random.randint(100000, 999999))
 
+
 class SignupView(APIView):
+    permission_classes = [AllowAny]
+    
     def post(self, request):
         # 2. View에 들어온 데이터를 Serializer(문지기)에게 넘겨줍니다. [연결 완료!]
         serializer = SignUpSerializer(data=request.data)
@@ -72,6 +76,8 @@ class SignupView(APIView):
         return Response({'success': False, 'message': serializer.errors})
 
 class LoginView(APIView):
+    permission_classes = [AllowAny]
+    
     def post(self, request):
         # Flutter에서 '아이디'를 username 키로 보냅니다.
         username = request.data.get('username')
@@ -82,10 +88,12 @@ class LoginView(APIView):
         user = authenticate(username=username, password=password)
 
         if user is not None:
+            token, created = Token.objects.get_or_create(user=user)
+
             return Response({
                 'success': True,
-                'token': 'this-is-a-fake-test-token-12345',
-                'username': user.username  # 로그인한 유저의 아이디 반환
+                'token': token.key,
+                'username': user.username,
             }, status=status.HTTP_200_OK)
         else:
             return Response({
@@ -128,6 +136,7 @@ class VerifyCodeView(APIView):
     """옥토모 역발상 인증 - SMS 발송 여부 확인"""
     authentication_classes = ()  # 인증 우회 (글로벌 인증 설정 무시)
     permission_classes = [AllowAny]  # 누구나 접근 가능
+    
     def post(self, request):
         phone_number = request.data.get('phone', '').strip()
         

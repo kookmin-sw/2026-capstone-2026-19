@@ -71,3 +71,11 @@ frontend/macos/Flutter/GeneratedPluginRegistrant.swift
 __pycache__/      # 파이썬 컴파일 캐시 파일
 db.sqlite3        # 로컬 테스트용 DB (EC2는 PostgreSQL 쓰니까 무시)
 staticfiles/      # collectstatic으로 모인 정적 파일들
+
+# Django local environment
+Backend/.env
+.env
+
+# Django uploaded media files
+Backend/media/
+media/
