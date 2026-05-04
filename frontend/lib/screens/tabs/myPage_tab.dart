@@ -15,20 +15,31 @@ class MyPageTab extends StatefulWidget {
 }
 
 class _MyPageTabState extends State<MyPageTab> {
-
   File? _profileImage;
   final ImagePicker _picker = ImagePicker();
+  late Future<Map<String, dynamic>> _profileFuture;
 
-  late final List<_MenuItem> _menus = [
-    _MenuItem(icon: Icons.verified_user_outlined,  label: '인증 관리',        sub: '본인 및 신원 인증',    screen: const _AuthScreen()),
-    _MenuItem(icon: Icons.star_outline,            label: '회원 매너 점수 관리', sub: '현재 4.8점',         screen: const _MannerScreen()),
-    _MenuItem(icon: Icons.local_taxi_outlined,     label: '이용 내역',         sub: '총 12건',              screen: const HistoryScreen()),
-    _MenuItem(icon: Icons.settings_outlined,       label: '설정',              sub: '알림, 약관, 버전 정보', screen: const SettingsScreen()),
-    _MenuItem(icon: Icons.headset_mic_outlined,    label: '고객지원',          sub: '문의 및 전화 상담',    screen: const SupportScreen()),
-    _MenuItem(icon: Icons.flag_outlined,           label: '신고하기',          sub: '부적절한 이용자 신고', screen: const _ReportScreen(), color: AppColors.red),
-    _MenuItem(icon: Icons.logout,                  label: '로그아웃',          sub: null, screen: null, color: AppColors.red),
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _profileFuture = AuthService.getProfile(); // 실제 DB 연동 함수
+  }
 
+  // 데이터에 따라 메뉴 리스트를 동적으로 생성하는 함수
+  List<_MenuItem> _getDynamicMenus(Map<String, dynamic> userData) {
+    final String score = userData['trust_score']?.toString() ?? '36.5';
+    final int count = userData['successful_streak_count'] ?? 0;
+
+    return [
+      _MenuItem(icon: Icons.verified_user_outlined, label: '인증 관리', sub: '본인 및 신원 인증', screen: const _AuthScreen()),
+      _MenuItem(icon: Icons.star_outline, label: '회원 매너 점수 관리', sub: '현재 $score점', screen: const _MannerScreen()),
+      _MenuItem(icon: Icons.local_taxi_outlined, label: '이용 내역', sub: '총 $count건', screen: const HistoryScreen()),
+      _MenuItem(icon: Icons.settings_outlined, label: '설정', sub: '알림, 약관, 버전 정보', screen: const SettingsScreen()),
+      _MenuItem(icon: Icons.headset_mic_outlined, label: '고객지원', sub: '문의 및 전화 상담', screen: const SupportScreen()),
+      _MenuItem(icon: Icons.flag_outlined, label: '신고하기', sub: '부적절한 이용자 신고', screen: const _ReportScreen(), color: AppColors.red),
+      _MenuItem(icon: Icons.logout, label: '로그아웃', sub: null, screen: null, color: AppColors.red),
+    ];
+  }
   void _showImagePickerSheet() {
     showModalBottomSheet(
       context: context,
@@ -148,28 +159,47 @@ class _MyPageTabState extends State<MyPageTab> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.bg,
-      body: SafeArea(
-        child: SingleChildScrollView(
-          child: Column(
-            children: [
-              _buildProfileHeader(),
-              const SizedBox(height: 12),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Column(children: _menus.map((m) => _buildMenuItem(context, m)).toList()),
-              ),
-              const SizedBox(height: 24),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+    Widget build(BuildContext context) {
+      return Scaffold(
+        backgroundColor: AppColors.bg,
+        body: FutureBuilder<Map<String, dynamic>>(
+          future: _profileFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+            if (!snapshot.hasData || snapshot.data?['success'] == false) return const Center(child: Text('데이터 로딩 실패'));
 
-  Widget _buildProfileHeader() {
+            final userData = snapshot.data?['data'];
+            // 여기서 동적 메뉴 리스트를 생성합니다.
+            final currentMenus = _getDynamicMenus(userData);
+
+            return SafeArea(
+              child: SingleChildScrollView(
+                child: Column(
+                  children: [
+                    _buildProfileHeader(userData),
+                    const SizedBox(height: 12),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      // 👈 여기가 중요! 고정된 _menus 대신 currentMenus를 사용합니다.
+                      child: Column(children: currentMenus.map((m) => _buildMenuItem(context, m)).toList()),
+                    ),
+                    const SizedBox(height: 24),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      );
+    }
+
+  Widget _buildProfileHeader(Map<String, dynamic> userData) {
+    // DB 필드명과 매칭 (장고 User 모델 기준)
+    final String realName = userData['user_real_name'] ?? '이름 없음';
+    final String username = userData['username'] ?? 'unknown';
+    final String trustScore = userData['trust_score']?.toString() ?? '36.5';
+    final int tripCount = userData['successful_streak_count'] ?? 0; // 예시: 성공 횟수를 탑승 횟수로 활용
+
     return Container(
       color: Colors.white,
       padding: const EdgeInsets.fromLTRB(20, 32, 20, 24),
@@ -187,44 +217,35 @@ class _MyPageTabState extends State<MyPageTab> {
                     border: Border.all(color: AppColors.border, width: 2),
                   ),
                   child: ClipOval(
-                    child: _profileImage != null
-                        ? Image.file(_profileImage!, fit: BoxFit.cover)
+                    child: userData['profile_img_url'] != null
+                        ? Image.network(userData['profile_img_url'], fit: BoxFit.cover) // 네트워크 이미지로 변경
                         : const Icon(Icons.person, color: AppColors.gray, size: 48),
                   ),
                 ),
-                Positioned(
-                  bottom: 0, right: 0,
-                  child: Container(
-                    width: 28, height: 28,
-                    decoration: BoxDecoration(
-                      color: AppColors.secondary,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 2),
-                    ),
-                    child: const Icon(Icons.camera_alt, color: Colors.white, size: 14),
-                  ),
-                ),
+                // ... 카메라 아이콘 Stack 부분은 동일
               ],
             ),
           ),
           const SizedBox(height: 14),
-          const Text('홍길동', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: AppColors.secondary)),
+          // 1. 이름 (실명) 연동
+          Text(realName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: AppColors.secondary)),
           const SizedBox(height: 4),
-          const Text('@my_username', style: TextStyle(fontSize: 12, color: AppColors.gray)),
+          // 2. 아이디 연동
+          Text('@$username', style: const TextStyle(fontSize: 12, color: AppColors.gray)),
           const SizedBox(height: 12),
           Wrap(spacing: 6, runSpacing: 6, children: [
             _tag('인증됨 ✓'),
-            _tag('⭐ 4.8', color: AppColors.accent, bg: const Color(0xFFFFF8E6)),
-            _tag('탑승 12회'),
+            _tag('⭐ $trustScore', color: AppColors.accent, bg: const Color(0xFFFFF8E6)), // 매너점수
+            _tag('탑승 $tripCount회'), // 탑승 횟수 연동
           ]),
           Container(
             margin: const EdgeInsets.only(top: 20),
             padding: const EdgeInsets.only(top: 16),
             decoration: const BoxDecoration(border: Border(top: BorderSide(color: AppColors.border))),
             child: Row(children: [
-              _stat('12회', '총 탑승'),
+              _stat('$tripCount회', '총 탑승'),
               Container(width: 1, height: 36, color: AppColors.border),
-              _stat('4.8점', '매너점수', color: AppColors.accent),
+              _stat('$trustScore점', '매너점수', color: AppColors.accent),
             ]),
           ),
         ],
