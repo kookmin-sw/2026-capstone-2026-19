@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../config/app_config.dart';
+import 'auth_session.dart';
 
 class AuthService {
 
@@ -151,6 +152,10 @@ class AuthService {
       final Map<String, dynamic> data = jsonDecode(utf8.decode(response.bodyBytes));
 
       if (response.statusCode == 200) {
+        AuthSession.save(
+                  newToken: data['token'],
+                  newUsername: data['username']
+                );
         return {
           'success': true,
           'token': data['token'],
@@ -267,27 +272,27 @@ class AuthService {
       },
     ];
   }
-}
+  static Future<Map<String, dynamic>> getProfile() async {
+    try {
+      final token = AuthSession.token; // 저장된 토큰 가져오기
+      if (token == null) return {'success': false, 'message': '로그인이 필요합니다.'};
 
-static Future<Map<String, dynamic>> getProfile() async {
-  try {
-    final token = AuthSession.token; // 저장된 토큰 가져오기
-    if (token == null) return {'success': false, 'message': '로그인이 필요합니다.'};
+      final response = await http.get(
+        Uri.parse('$baseUrl/profile/'), // 백엔드 프로필 엔드포인트
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Token $token', // 토큰 인증
+        },
+      );
 
-    final response = await http.get(
-      Uri.parse('$baseUrl/profile/'), // 백엔드 프로필 엔드포인트
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Token $token', // 토큰 인증
-      },
-    );
-
-    if (response.statusCode == 200) {
-      final data = jsonDecode(utf8.decode(response.bodyBytes));
-      return {'success': true, 'data': data};
+      if (response.statusCode == 200) {
+        final data = jsonDecode(utf8.decode(response.bodyBytes));
+        return {'success': true, 'data': data};
+      }
+      return {'success': false, 'message': '프로필 로딩 실패'};
+    } catch (e) {
+      return {'success': false, 'message': '서버 연결 오류'};
     }
-    return {'success': false, 'message': '프로필 로딩 실패'};
-  } catch (e) {
-    return {'success': false, 'message': '서버 연결 오류'};
   }
 }
+

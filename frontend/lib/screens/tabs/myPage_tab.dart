@@ -7,6 +7,8 @@ import 'package:image_picker/image_picker.dart';
 import '../auth/login_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../utils/colors.dart';
+import '../../service/auth_service.dart';
+import '../../service/auth_session.dart';
 
 class MyPageTab extends StatefulWidget {
   const MyPageTab({super.key});
@@ -17,13 +19,18 @@ class MyPageTab extends StatefulWidget {
 class _MyPageTabState extends State<MyPageTab> {
   File? _profileImage;
   final ImagePicker _picker = ImagePicker();
-  late Future<Map<String, dynamic>> _profileFuture;
+  Future<Map<String, dynamic>>? _profileFuture;
 
   @override
   void initState() {
-    super.initState();
-    _profileFuture = AuthService.getProfile(); // 실제 DB 연동 함수
-  }
+      super.initState();
+
+      // 📍 핵심: 로그인이 안 되어 있으면 서버에 묻지 말고 '가짜 실패 데이터'를 바로 넣어줍니다.
+      // 이렇게 하면 late 변수가 비어있지 않게 되어 앱이 즉사하지 않습니다!
+     if (AuthSession.isLoggedIn) {
+           _profileFuture = AuthService.getProfile();
+      }
+    }
 
   // 데이터에 따라 메뉴 리스트를 동적으로 생성하는 함수
   List<_MenuItem> _getDynamicMenus(Map<String, dynamic> userData) {
@@ -160,6 +167,29 @@ class _MyPageTabState extends State<MyPageTab> {
 
   @override
     Widget build(BuildContext context) {
+      // 📍 1. 입구 컷: 준비된 데이터(_profileFuture)가 없으면(스킵된 상태면) 아예 퓨처빌더를 안 돌립니다.
+      if (_profileFuture == null) {
+        return Scaffold(
+          backgroundColor: AppColors.bg,
+          body: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.lock_outline, size: 48, color: AppColors.gray),
+                const SizedBox(height: 16),
+                const Text('로그인이 필요한 서비스입니다.', style: TextStyle(color: AppColors.secondary)),
+                const SizedBox(height: 24),
+                ElevatedButton(
+                  onPressed: () => Navigator.pushNamed(context, '/login'),
+                  child: const Text('로그인하러 가기'),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+
+      // 📍 2. 로그인이 되어 있어서 _profileFuture가 세팅되었다면, 기존처럼 퓨처빌더로 화면을 그립니다.
       return Scaffold(
         backgroundColor: AppColors.bg,
         body: FutureBuilder<Map<String, dynamic>>(
@@ -169,7 +199,14 @@ class _MyPageTabState extends State<MyPageTab> {
             if (!snapshot.hasData || snapshot.data?['success'] == false) return const Center(child: Text('데이터 로딩 실패'));
 
             final userData = snapshot.data?['data'];
-            // 여기서 동적 메뉴 리스트를 생성합니다.
+
+            // 만약 통신은 성공했는데 데이터가 꼬여서 null이 올 경우를 대비한 최소한의 방어막
+            if (userData == null) {
+              return const Center(
+                child: Text('프로필 데이터를 불러올 수 없습니다.'),
+              );
+            }
+
             final currentMenus = _getDynamicMenus(userData);
 
             return SafeArea(
@@ -180,7 +217,6 @@ class _MyPageTabState extends State<MyPageTab> {
                     const SizedBox(height: 12),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
-                      // 👈 여기가 중요! 고정된 _menus 대신 currentMenus를 사용합니다.
                       child: Column(children: currentMenus.map((m) => _buildMenuItem(context, m)).toList()),
                     ),
                     const SizedBox(height: 24),
@@ -391,15 +427,38 @@ class _HistoryScreenState extends State<HistoryScreen> {
     }
   }
 
-  @override
   Widget build(BuildContext context) {
+    // 📍 1. 로그인 상태를 먼저 체크합니다. (가장 중요!)
+    if (!AuthSession.isLoggedIn) {
+      return Scaffold(
+        backgroundColor: AppColors.bg,
+        appBar: _appBar('이용 내역'),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.lock_outline, size: 48, color: AppColors.gray),
+              const SizedBox(height: 16),
+              const Text('로그인이 필요한 서비스입니다.', style: TextStyle(color: AppColors.secondary)),
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: () => Navigator.pushNamed(context, '/login'),
+                child: const Text('로그인하러 가기'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // 📍 2. 로그인이 된 경우에만 아래 로직을 수행합니다.
     return Scaffold(
       backgroundColor: AppColors.bg,
       appBar: _appBar('이용 내역'),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(child: Text(_error!, style: const TextStyle(color: AppColors.red)))
+              ? Center(child: _buildErrorUI()) // 에러 UI를 별도로 빼면 코드가 깔끔해집니다.
               : _histories.isEmpty
                   ? const Center(child: Text('이용 내역이 없습니다.', style: TextStyle(color: AppColors.gray)))
                   : ListView.builder(
@@ -407,6 +466,17 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       itemCount: _histories.length,
                       itemBuilder: (_, i) => _buildHistoryCard(_histories[i]),
                     ),
+    );
+  }
+
+  // 📍 별도의 에러 처리 UI (선택 사항)
+  Widget _buildErrorUI() {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text(_error!, style: const TextStyle(color: AppColors.red)),
+        TextButton(onPressed: _fetchHistory, child: const Text('다시 시도')),
+      ],
     );
   }
 
