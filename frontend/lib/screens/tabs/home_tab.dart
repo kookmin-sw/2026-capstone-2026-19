@@ -29,17 +29,11 @@ class RidePin {
   final double lat, lng; // 실제 좌표
   final bool isMine;
 
-
   const RidePin({
-    required this.id,
-    required this.hostId,
-    required this.dept,
-    required this.dest,
-    required this.time,
-    required this.max,
-    required this.cur,
-    required this.lat,
-    required this.lng,
+    required this.id, required this.hostId,
+    required this.dept, required this.dest, required this.time,
+    required this.max, required this.cur,
+    required this.lat, required this.lng,
     this.isMine = false,
   });
 
@@ -111,6 +105,8 @@ class _HomeTabState extends State<HomeTab> {
     {'icon':'📍','msg':'내 근처에 새로운 동승 핀이 생성되었습니다.', 'time':'12분 전'},
     {'icon':'✅','msg':'이용 내역이 정산되었습니다.',                 'time':'1시간 전'},
   ];
+
+  int _lastPinCount = globalPins.length;
 
   void _onTripsChanged() {
     _fetchServerPins(moveToNewest: true);
@@ -189,6 +185,8 @@ class _HomeTabState extends State<HomeTab> {
   @override
   void dispose() {
     TripService.tripsRefreshNotifier.removeListener(_onTripsChanged);
+    _positionStream?.cancel();
+    _sheetController.dispose();
     super.dispose();
   }
 
@@ -318,8 +316,6 @@ class _HomeTabState extends State<HomeTab> {
       _activePinId == null ? null
           : _visiblePins.firstWhere((p) => p.id == _activePinId,
           orElse: () => globalPins.isNotEmpty ? globalPins.first : _visiblePins.isNotEmpty ? _visiblePins.first : globalPins.first);
-
-  int _lastPinCount = globalPins.length;
 
   @override
   Widget build(BuildContext context) {
@@ -588,7 +584,6 @@ class _HomeTabState extends State<HomeTab> {
 
         // 지도 준비 완료 상태 업데이트
         setState(() => _isMapReady = true);
-        await _refreshMapMarkers();
       },
       onMarkerTap: (markerId, latLng, zoomLevel) {
         _onMarkerTap(markerId);
