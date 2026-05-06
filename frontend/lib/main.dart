@@ -64,7 +64,7 @@ class TaxiMateApp extends StatelessWidget {
           ),
         ),
       ),
-      initialRoute: AppRoutes.splash, // 앱 시작 시 기본적으로 스플래시 화면으로 이동
+      initialRoute: AppRoutes.login, // 앱 시작 시 기본적으로 스플래시 화면으로 이동
       routes: {
         AppRoutes.splash: (_) => const SplashScreen(),
         AppRoutes.login:  (_) => const LoginScreen(),

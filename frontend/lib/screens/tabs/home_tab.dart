@@ -80,6 +80,7 @@ class HomeTab extends StatefulWidget {
 
 class _HomeTabState extends State<HomeTab> {
   // 지도 컨트롤러
+  bool _canLoadMap = false;
   KakaoMapController? _mapController;
 
   // 상태
@@ -176,12 +177,39 @@ class _HomeTabState extends State<HomeTab> {
   @override
   void initState() {
     super.initState();
-    _initLocation();
-    _fetchServerPins();
-
     TripService.tripsRefreshNotifier.addListener(_onTripsChanged);
-  }
 
+      // 🔴 2. 무거운 작업들은 순서대로 실행 (시퀀스 함수 호출)
+      _startAppSequence();
+    }
+
+    // 🔴 새로 만드는 단계별 실행 함수
+    Future<void> _startAppSequence() async {
+        if (!mounted) return;
+
+        // 1단계: 서버 핀 데이터 가져오기
+        await _fetchServerPins();
+
+        // 2단계: 0.6초 쉬었다가 GPS 시동
+        await Future.delayed(const Duration(milliseconds: 600));
+        if (mounted) await _initLocation();
+
+        // 3단계: 1.2초 뒤에 지도 로딩 허용
+        await Future.delayed(const Duration(milliseconds: 1200));
+        if (mounted) {
+          setState(() {
+            _canLoadMap = true;
+          }); // 👈 누락됐던 괄호 1
+        } // 👈 누락됐던 괄호 2
+
+        // 4단계: 에뮬레이터 무한 로딩 방지용 강제 종료 타임아웃
+        await Future.delayed(const Duration(seconds: 3));
+        if (mounted && _locationLoading) {
+          setState(() {
+            _locationLoading = false;
+          });
+        }
+      }
   @override
   void dispose() {
     TripService.tripsRefreshNotifier.removeListener(_onTripsChanged);
@@ -219,8 +247,8 @@ class _HomeTabState extends State<HomeTab> {
     // 3. 실시간 위치 스트림 구독 시작
     _positionStream = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 5, // 5미터 이동 시 업데이트
+        accuracy: LocationAccuracy.medium,
+        distanceFilter: 100, // 5미터 이동 시 업데이트
       ),
     ).listen((position) {
       setState(() {
@@ -341,6 +369,7 @@ class _HomeTabState extends State<HomeTab> {
 
     return Scaffold(
       backgroundColor: Colors.white,
+      resizeToAvoidBottomInset: false,
       body: SafeArea(
         child: Stack(
           children: [
@@ -475,76 +504,117 @@ class _HomeTabState extends State<HomeTab> {
 
   // ── 지도 + 드래그 시트 ──
   Widget _buildMapWithSheet() {
-    return Stack(children: [
-      // 지도는 항상 유지 (재빌드 방지)
-      _buildKakaoMap(),
+      return Stack(children: [
+        // 지도는 항상 유지 (재빌드 방지)
+        if (_canLoadMap)
+          _buildKakaoMap()
+        else
+          _buildMapPlaceholder(),
 
-      // 내 위치 버튼
-      Positioned(
-        bottom: _activePinId != null ? 320 : 14,
-        right: 16,
-        child: FloatingActionButton.small(
-          heroTag: 'location_btn',
-          backgroundColor: Colors.white,
-          elevation: 4,
-          onPressed: _moveToMyLocation,
-          child: const Icon(Icons.my_location, color: AppColors.primary, size: 22),
-        ),
-      ),
+        // 내 위치 버튼
+        if (_canLoadMap)
+          Positioned(
+            bottom: _activePinId != null ? 320 : 14,
+            right: 16,
+            child: FloatingActionButton.small(
+              heroTag: 'location_btn',
+              backgroundColor: Colors.white,
+              elevation: 4,
+              onPressed: _moveToMyLocation,
+              child: const Icon(Icons.my_location, color: AppColors.primary, size: 22),
+            ),
+          ),
 
-      // 핀 목록 시트
-      if (_activePinId != null)
-        DraggableScrollableSheet(
-          controller: _sheetController,
-          initialChildSize: 0.45,
-          minChildSize: 0.3,
-          maxChildSize: 0.85,
-          snap: true,
-          snapSizes: const [0.3, 0.45, 0.85],
-          builder: (context, scrollController) {
-            return Container(
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-                boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 16, offset: Offset(0, -4))],
-              ),
-              child: Column(children: [
-                _buildSheetHeader(),
-                Expanded(
-                  child: _visiblePins.isEmpty
-                      ? const Center(child: Text('이 지역에 동승 핀이 없습니다.', style: TextStyle(color: AppColors.gray)))
-                      : ListView.builder(
-                    controller: scrollController,
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                    itemCount: _visiblePins.length,
-                    itemBuilder: (_, i) => _buildRideCard(_visiblePins[i]),
-                  ),
+        // 핀 목록 시트
+        if (_activePinId != null)
+          DraggableScrollableSheet(
+            controller: _sheetController,
+            initialChildSize: 0.45,
+            minChildSize: 0.3,
+            maxChildSize: 0.85,
+            snap: true,
+            snapSizes: const [0.3, 0.45, 0.85],
+            builder: (context, scrollController) {
+              return Container(
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                  boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 16, offset: Offset(0, -4))],
                 ),
-              ]),
-            );
-          },
-        ),
+                child: Column(children: [
+                  _buildSheetHeader(),
+                  Expanded(
+                    child: _visiblePins.isEmpty
+                        ? const Center(child: Text('이 지역에 동승 핀이 없습니다.', style: TextStyle(color: AppColors.gray)))
+                        : ListView.builder(
+                      controller: scrollController,
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                      itemCount: _visiblePins.length,
+                      itemBuilder: (_, i) => _buildRideCard(_visiblePins[i]),
+                    ),
+                  ),
+                ]),
+              );
+            },
+          ),
 
-      // 지도 로딩 오버레이 - 위젯 트리 구조 유지를 위해 Visibility 사용
-      // 위치 로딩 + 지도 준비 완료 후에만 숨김
-      Visibility(
-        visible: _locationLoading || !_isMapReady,
-        child: Container(
-          color: Colors.white.withOpacity(0.7),
-          child: const Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                CircularProgressIndicator(color: AppColors.primary),
-                SizedBox(height: 12),
-                Text('내 위치를 찾는 중...', style: TextStyle(fontSize: 13, color: AppColors.gray)),
-              ],
+        // 지도 로딩 오버레이 - 위젯 트리 구조 유지를 위해 Visibility 사용
+        // 위치 로딩 + 지도 준비 완료 후에만 숨김
+        Visibility(
+          visible: _locationLoading || !_isMapReady,
+          child: Container(
+            color: Colors.white.withOpacity(0.7),
+            child: const Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(color: AppColors.primary),
+                  SizedBox(height: 12),
+                  Text('내 위치를 찾는 중...', style: TextStyle(fontSize: 13, color: AppColors.gray)),
+                ],
+              ),
             ),
           ),
         ),
-      ),
-    ]);
-  }
+      ]);
+    } // 🔴 _buildMapWithSheet 함수는 여기서 완전히 끝납니다! 🔴
+
+    // 🔴 _buildMapWithSheet와 완전히 독립된 새로운 함수입니다! 🔴
+    Widget _buildMapPlaceholder() {
+      return Container(
+        color: AppColors.bg, // 배경색
+        child: const Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // 빙글빙글 돌아가는 로딩 인디케이터
+              CircularProgressIndicator(
+                color: AppColors.primary,
+                strokeWidth: 3,
+              ),
+              SizedBox(height: 16),
+              Text(
+                '지도를 안전하게 불러오는 중입니다...',
+                style: TextStyle(
+                  color: AppColors.gray,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              SizedBox(height: 8),
+              Text(
+                '잠시만 기다려 주세요.',
+                style: TextStyle(
+                  color: AppColors.gray,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
 
   // -- 카카오맵 위젯 -----------------------------------------
   Widget _buildKakaoMap() {
