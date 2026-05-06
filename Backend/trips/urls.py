@@ -1,13 +1,23 @@
 from django.urls import path
-# 1. views.py에 정의된 정확한 클래스 이름(TripCreateListView)을 가져옵니다.
-from .views import TripCreateListView, TripJoinView
+# 1. views.py에 정의된 클래스들을 모두 가져옵니다.
+from .views import (
+    TripCreateListView,
+    TripJoinView,
+    MyTripListView,          # 📍 추가됨 (내 내역)
+    TripStatusUpdateView     # 📍 추가됨 (상태 변경 및 삭제)
+)
 
 urlpatterns = [
-
+    # 전체 목록 조회 및 핀 생성 ( GET/POST /api/trips/ )
     path('', TripCreateListView.as_view(), name='trip-list-create'),
+
+    # 📍 내 동승 내역 조회 ( GET /api/trips/my/ )
+    # 주의: <int:pk> 보다 위에 있어야 URL 라우팅이 꼬이지 않습니다.
+    path('my/', MyTripListView.as_view(), name='my-trip-list'),
+
+    # 특정 핀 참여 ( POST /api/trips/<pk>/join/ )
     path('<int:pk>/join/', TripJoinView.as_view(), name='trip-join'),
 
-    # 기능을 구현한 후에 하나씩 주석을 풀고 views.py에서 import 하세요!
-    # path('<int:pk>/', TripDetailView.as_view(), name='trip-detail'),
-    # path('participants/', ParticipantCreateView.as_view(), name='participant-create'),
+    # 📍 상태 변경 및 핀 삭제 ( PATCH/DELETE /api/trips/<pk>/ )
+    path('<int:pk>/', TripStatusUpdateView.as_view(), name='trip-status-update'),
 ]

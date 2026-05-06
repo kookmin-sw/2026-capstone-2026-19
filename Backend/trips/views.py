@@ -135,3 +135,60 @@ class TripJoinView(APIView):
 
         except Exception as e:
             return Response({'message': f'참여 처리 중 오류가 발생했습니다: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class MyTripListView(APIView):
+    """내가 방장이거나, 멤버로 참여 중인 모든 동승 내역 조회"""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        # 현재 로그인한 유저가 'JOINED' 상태로 포함된 모든 트립
+        trips = Trip.objects.filter(
+            trip_participants__user=request.user,
+            trip_participants__status=TripParticipant.StatusChoices.JOINED
+        ).distinct().order_by('-depart_time')
+
+        serializer = TripSerializer(trips, many=True, context={'request': request})
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+class TripStatusUpdateView(APIView):
+    """방장이 동승의 상태를 변경하거나 핀을 삭제함"""
+    permission_classes = [permissions.IsAuthenticated]
+
+    # 1. 상태 변경 (PATCH) - service.dart의 updateTripStatus와 연결
+    def patch(self, request, pk):
+        try:
+            trip = Trip.objects.get(pk=pk)
+        except Trip.DoesNotExist:
+            return Response({"message": "존재하지 않는 핀입니다."}, status=status.HTTP_404_NOT_FOUND)
+
+        # 권한 확인: 방장만 상태 변경 가능
+        if trip.leader_user != request.user:
+            return Response({"message": "상태 변경 권한이 없습니다."}, status=status.HTTP_403_FORBIDDEN)
+
+        new_status = request.data.get('status')
+
+        # 모델의 StatusChoices에 정의된 값인지 확인
+        valid_statuses = [choice[0] for choice in Trip.StatusChoices.choices]
+
+        if new_status in valid_statuses:
+            trip.status = new_status
+            trip.save()
+            return Response({"success": True, "status": trip.status}, status=status.HTTP_200_OK)
+
+        return Response({"message": "잘못된 상태 값입니다."}, status=status.HTTP_400_BAD_REQUEST)
+
+    # 2. 📍 핀 삭제 (DELETE) - service.dart의 deleteTrip과 연결되도록 추가됨!
+    def delete(self, request, pk):
+        try:
+            trip = Trip.objects.get(pk=pk)
+        except Trip.DoesNotExist:
+            return Response({"message": "존재하지 않는 핀입니다."}, status=status.HTTP_404_NOT_FOUND)
+
+        # 권한 확인: 방장만 삭제 가능
+        if trip.leader_user != request.user:
+            return Response({"message": "삭제 권한이 없습니다."}, status=status.HTTP_403_FORBIDDEN)
+
+        # 핀(방) 삭제
+        trip.delete()
+        # 성공 시 204 No Content 반환 (service.dart에서 이 코드를 기다림)
+        return Response(status=status.HTTP_204_NO_CONTENT)

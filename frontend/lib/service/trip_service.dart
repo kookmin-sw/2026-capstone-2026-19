@@ -241,4 +241,115 @@ class TripService {
         return {'success': false, 'message': '서버 연결 오류: $e'};
       }
     }
-} // 괄호 오타 수정 완료
+    // 6. 내 동승 내역(참여 중 + 내가 만든 것) 가져오기
+      // 📍 설명: ActiveTab 화면 처음에 호출되어 내가 관련된 핀만 필터링해서 가져옴
+      static Future<List<dynamic>> getMyTrips({required String token}) async {
+        try {
+          final response = await http.get(
+            Uri.parse('$tripApiUrl/my/'), // 📍 뷰에서 매핑한 MyTripListView의 url
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Token $token',
+            },
+          );
+
+          if (response.statusCode == 200) {
+            return jsonDecode(utf8.decode(response.bodyBytes));
+          } else {
+            print('내 동승 내역 로드 실패: ${response.statusCode}');
+            return [];
+          }
+        } catch (e) {
+          print('내 동승 내역 서버 연결 오류: $e');
+          return [];
+        }
+      }
+
+      // 7. 동승 상태 업데이트 (탑승 확인 완료 등)
+      // 📍 설명: 방장이 '탑승 확인' 버튼을 누르면 상태를 'CLOSED'로 변경
+      static Future<bool> updateTripStatus({
+        required String token,
+        required int tripId,
+        required String status, // 'CLOSED', 'COMPLETED' 등 Django 모델과 맞춘 값
+      }) async {
+        try {
+          final response = await http.patch(
+            Uri.parse('$tripApiUrl/$tripId/'), // 📍 뷰에서 매핑한 TripStatusUpdateView url
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Token $token',
+            },
+            body: jsonEncode({'status': status}),
+          );
+
+          if (response.statusCode == 200) {
+            notifyTripsChanged(); // 상태가 변했으므로 다른 화면들 새로고침 알림
+            return true;
+          }
+          print('상태 업데이트 실패: ${response.statusCode} - ${response.body}');
+          return false;
+        } catch (e) {
+          print('상태 업데이트 서버 연결 오류: $e');
+          return false;
+        }
+      }
+
+      // 8. 핀 삭제 (내가 만든 핀 취소 또는 모집 취소)
+      // 📍 설명: 방장이 '핀 삭제' 버튼을 눌렀을 때 핀을 지우거나 상태를 'CANCELED'로 바꿈
+      static Future<bool> deleteTrip({
+        required String token,
+        required int tripId
+      }) async {
+        try {
+          // 💡 백엔드 구현에 따라 실제 DELETE를 할 수도 있고, 상태를 CANCELED로 바꿀 수도 있음.
+          // 여기서는 REST API 관례에 따라 DELETE 메서드를 사용하도록 구현함.
+          final response = await http.delete(
+            Uri.parse('$tripApiUrl/$tripId/'),
+            headers: {
+              'Authorization': 'Token $token',
+            },
+          );
+
+          if (response.statusCode == 204 || response.statusCode == 200) {
+            notifyTripsChanged();
+            return true;
+          }
+          print('핀 삭제 실패: ${response.statusCode}');
+          return false;
+        } catch (e) {
+          print('핀 삭제 서버 연결 오류: $e');
+          return false;
+        }
+      }
+
+      // 9. (선택) 정산 요청 보내기 - 이미지 첨부가 있으므로 MultipartRequest 사용
+      static Future<Map<String, dynamic>> requestSettlement({
+        required String token,
+        required int tripId,
+        required int totalFare,
+        required dynamic imageFile, // File 객체가 들어옵니다
+      }) async {
+        try {
+          var request = http.MultipartRequest('POST', Uri.parse('$serverUrl/api/settlements/'));
+          request.headers['Authorization'] = 'Token $token';
+          request.fields['trip_id'] = tripId.toString();
+          request.fields['total_fare'] = totalFare.toString();
+
+          // 이미지가 있을 경우만 첨부
+          if (imageFile != null) {
+            request.files.add(await http.MultipartFile.fromPath('receipt_image', imageFile.path));
+          }
+
+          var streamedResponse = await request.send();
+          var response = await http.Response.fromStream(streamedResponse);
+
+          if (response.statusCode == 201 || response.statusCode == 200) {
+            notifyChatRoomsChanged();
+            return {'success': true};
+          }
+          return {'success': false, 'message': '정산 요청에 실패했습니다.'};
+        } catch (e) {
+          return {'success': false, 'message': '서버 연결 오류: $e'};
+        }
+      }
+    }
