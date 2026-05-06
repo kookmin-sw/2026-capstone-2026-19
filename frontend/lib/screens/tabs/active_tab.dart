@@ -89,21 +89,21 @@ class ActiveRidePin {
 
 class ActiveRideState extends ChangeNotifier {
   List<ActiveRidePin> _waitingPins = [];
-  List<ActiveRidePin> _myPins = [];
-  bool _isLoading = false;
+    List<ActiveRidePin> _myPins = [];
+    bool _isLoading = false;
 
-  List<ActiveRidePin> get waitingPins => _waitingPins;
-  List<ActiveRidePin> get myPins => _myPins;
-  bool get isLoading => _isLoading;
+    List<ActiveRidePin> get waitingPins => _waitingPins;
+    List<ActiveRidePin> get myPins => _myPins;
+    bool get isLoading => _isLoading;
 
-  // 가장 임박한 동승을 '현재 진행 중'으로 판별
-  ActiveRidePin? get currentActiveRide {
-    final allRides = [..._myPins, ..._waitingPins]
-      ..where((p) => p.phase != RidePhase.completed).toList()
-      ..sort((a, b) => a.departTime.compareTo(b.departTime));
-    if (allRides.isEmpty) return null;
-    return allRides.first;
-  }
+    // 📍 기존 home_tab.dart와의 호환성을 위해 이름을 activeRide로 유지합니다.
+    ActiveRidePin? get activeRide {
+      final allRides = [..._myPins, ..._waitingPins]
+        ..where((p) => p.phase != RidePhase.completed).toList()
+        ..sort((a, b) => a.departTime.compareTo(b.departTime));
+      if (allRides.isEmpty) return null;
+      return allRides.first;
+    }
 
   // 📍 1. 실제 데이터 로드
   Future<void> fetchActiveRides() async {
@@ -199,7 +199,7 @@ class _ActiveRideSheetState extends State<ActiveRideSheet> {
   final DraggableScrollableController _sheetCtrl = DraggableScrollableController();
 
   ActiveRideState get _s => widget.state;
-  ActiveRidePin? get ride => _s.currentActiveRide;
+  ActiveRidePin? get ride => _s.activeRide;
 
   @override
   void dispose() {
@@ -810,7 +810,7 @@ class ActiveRideButton extends StatelessWidget {
     return AnimatedBuilder(
       animation: state,
       builder: (_, __) {
-        final current = state.currentActiveRide;
+        final current = state.activeRide;
         if (current == null || current.phase == RidePhase.completed) {
           return const SizedBox.shrink();
         }
@@ -930,7 +930,7 @@ class _ActiveTabState extends State<ActiveTab> with SingleTickerProviderStateMix
                       ? const Center(child: CircularProgressIndicator())
                       : TabBarView(controller: _tabCtrl, children: [_buildWaitingList(), _buildMyPinList()]),
                   ),
-                  if (!_state.isLoading && _state.currentActiveRide != null)
+                  if (!_state.isLoading && _state.activeRide != null)
                     ActiveRideButton(state: _state, onTap: () => setState(() => _showActiveDetail = true)),
                 ],
               ),
@@ -939,7 +939,7 @@ class _ActiveTabState extends State<ActiveTab> with SingleTickerProviderStateMix
                   state: _state,
                   onClose: () => setState(() => _showActiveDetail = false),
                   onGoToChat: () {
-                    final current = _state.currentActiveRide;
+                    final current = _state.activeRide;
                     if (current != null) {
                       Navigator.push(context, MaterialPageRoute(builder: (_) => ActiveTabChatBridge(hostId: current.hostId, dept: current.dept, dest: current.dest)));
                     }

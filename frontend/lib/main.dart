@@ -104,7 +104,7 @@ class _MainScreenState extends State<MainScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: IndexedStack(index: _selectedIndex, children: _screens), // 여러 탭 화면 유지하면서 현재 탭만 출력
+      body: _screens[_selectedIndex], // 여러 탭 화면 유지하면서 현재 탭만 출력
       bottomNavigationBar: BottomNavigationBar(
         type: BottomNavigationBarType.fixed, // 탭 네비게이션 바
         currentIndex: _selectedIndex, // 현재 선택된 탭 인덱스

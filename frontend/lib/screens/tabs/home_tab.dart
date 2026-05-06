@@ -367,9 +367,9 @@ class _HomeTabState extends State<HomeTab> {
                     context,
                     MaterialPageRoute(
                       builder: (_) => ActiveTabChatBridge(
-                        hostId: _activeRideState.activeRide.hostId,
-                        dept: _activeRideState.activeRide.dept,
-                        dest: _activeRideState.activeRide.dest,
+                        hostId: _activeRideState.activeRide!.hostId,
+                        dept: _activeRideState.activeRide!.dept,
+                        dest: _activeRideState.activeRide!.dest,
                       ),
                     ),
                   );
