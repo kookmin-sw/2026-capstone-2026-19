@@ -96,12 +96,19 @@ class ReceiptSerializer(serializers.ModelSerializer):
 
 
 class ReceiptCreateSerializer(serializers.ModelSerializer):
+    reset_existing = serializers.BooleanField(
+        required=False,
+        default=False,
+        write_only=True,
+    )
+
     class Meta:
         model = Receipt
         fields = [
             "image",
             "image_url",
             "total_amount",
+            "reset_existing",
         ]
         extra_kwargs = {
             "image": {"required": False},

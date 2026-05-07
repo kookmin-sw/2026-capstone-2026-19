@@ -46,6 +46,7 @@ def upsert_payment_channel(*, trip, user, validated_data):
     )
     return channel
 
+
 def extract_total_amount_from_text(raw_text: str):
     """
     OCR 원문에서 결제 금액 후보를 추출한다.
@@ -74,6 +75,73 @@ def extract_total_amount_from_text(raw_text: str):
         return None
 
     return max(candidates)
+
+
+def extract_ride_time_from_text(raw_text: str, *, base_depart_time=None):
+    """
+    OCR 원문에서 택시 이용 날짜/시간 후보를 추출한다.
+    카카오T 이용내역처럼 2026.05.06 20:30, 2026-05-06 20:30,
+    05.06 20:30, 20:30 형태를 우선 지원한다.
+    날짜가 없는 시간만 잡히면 Trip.depart_time의 날짜를 사용한다.
+    """
+    if not raw_text:
+        return None
+
+    text = raw_text.replace("\n", " ")
+
+    # 2026.05.06 20:30 / 2026-05-06 20:30 / 2026/05/06 20:30
+    full_datetime_patterns = [
+        r"(20\d{2})[.\-/년\s]+(\d{1,2})[.\-/월\s]+(\d{1,2})[일\s]+(\d{1,2})[:시](\d{2})",
+    ]
+
+    for pattern in full_datetime_patterns:
+        match = re.search(pattern, text)
+        if match:
+            year, month, day, hour, minute = map(int, match.groups())
+            try:
+                return timezone.make_aware(
+                    timezone.datetime(year, month, day, hour, minute),
+                    timezone.get_current_timezone(),
+                )
+            except ValueError:
+                return None
+
+    # 05.06 20:30 / 5월 6일 20:30
+    month_day_time_patterns = [
+        r"(\d{1,2})[.\-/월\s]+(\d{1,2})[일\s]+(\d{1,2})[:시](\d{2})",
+    ]
+
+    for pattern in month_day_time_patterns:
+        match = re.search(pattern, text)
+        if match and base_depart_time:
+            month, day, hour, minute = map(int, match.groups())
+            try:
+                return timezone.make_aware(
+                    timezone.datetime(base_depart_time.year, month, day, hour, minute),
+                    timezone.get_current_timezone(),
+                )
+            except ValueError:
+                return None
+
+    # 20:30 / 20시 30분
+    time_only_patterns = [
+        r"(\d{1,2})[:시](\d{2})",
+    ]
+
+    for pattern in time_only_patterns:
+        match = re.search(pattern, text)
+        if match and base_depart_time:
+            hour, minute = map(int, match.groups())
+
+            if 0 <= hour <= 23 and 0 <= minute <= 59:
+                return base_depart_time.replace(
+                    hour=hour,
+                    minute=minute,
+                    second=0,
+                    microsecond=0,
+                )
+
+    return None
 
 
 def run_ocr_for_receipt(receipt: Receipt) -> str:
@@ -180,9 +248,34 @@ def analyze_receipt_ocr(*, receipt: Receipt, actor):
 
     raw_text = run_ocr_for_receipt(receipt)
     extracted_amount = extract_total_amount_from_text(raw_text)
+    extracted_ride_time = extract_ride_time_from_text(
+        raw_text,
+        base_depart_time=trip.depart_time,
+    )
 
     receipt.ocr_raw_text = raw_text
     receipt.extracted_total_amount = extracted_amount
+    receipt.extracted_ride_time = extracted_ride_time
+
+    if extracted_ride_time:
+        time_diff_seconds = abs((extracted_ride_time - trip.depart_time).total_seconds())
+        time_diff_minutes = int(time_diff_seconds // 60)
+
+        if time_diff_minutes > 30:
+            receipt.ocr_status = "FAILED"
+            receipt.save(
+                update_fields=[
+                    "ocr_raw_text",
+                    "extracted_total_amount",
+                    "extracted_ride_time",
+                    "ocr_status",
+                    "updated_at",
+                ]
+            )
+            raise ValidationError(
+                f"영수증 이용 시간이 모집 출발 시간과 {time_diff_minutes}분 차이납니다. "
+                "다른 영수증을 등록하거나 수기 정산을 이용해주세요."
+            )
 
     if extracted_amount is None:
         receipt.ocr_status = "NEEDS_REVIEW"
@@ -193,19 +286,67 @@ def analyze_receipt_ocr(*, receipt: Receipt, actor):
         update_fields=[
             "ocr_raw_text",
             "extracted_total_amount",
+            "extracted_ride_time",
             "ocr_status",
             "updated_at",
         ]
     )
-
     return receipt
+
 
 @transaction.atomic
 def create_receipt(*, trip, user, validated_data):
     _validate_trip_leader(trip=trip, user=user)
 
-    if hasattr(trip, "receipt"):
-        raise ValidationError("이미 영수증이 등록된 트립입니다.")
+    reset_existing = validated_data.pop("reset_existing", False)
+    existing_receipt = getattr(trip, "receipt", None)
+
+    if existing_receipt:
+        has_existing_settlements = existing_receipt.settlements.exists()
+
+        if has_existing_settlements and not reset_existing:
+            raise ValidationError("이미 정산이 생성된 영수증입니다. 기존 정산을 취소한 뒤 다시 등록해주세요.")
+
+        if has_existing_settlements and reset_existing:
+            # model/migration을 건드리지 않기 위해 기존 정산 레코드는 삭제한다.
+            # 삭제 후 같은 receipt + payer_user 조합으로 새 정산 요청을 다시 만들 수 있다.
+            existing_receipt.settlements.all().delete()
+
+        # 정산 요청 생성 전이거나, reset_existing=True로 기존 정산을 정리한 경우
+        # 잘못 올린 영수증/OCR 실패 영수증을 새 이미지로 교체한다.
+        existing_receipt.uploaded_by = user
+        existing_receipt.image = validated_data.get("image")
+        existing_receipt.image_url = validated_data.get("image_url")
+        existing_receipt.total_amount = validated_data.get("total_amount")
+
+        # OCR/확정 상태를 영수증 등록 직후 상태로 초기화한다.
+        existing_receipt.ocr_raw_text = ""
+        existing_receipt.extracted_total_amount = None
+        existing_receipt.extracted_departure_name = None
+        existing_receipt.extracted_arrival_name = None
+        existing_receipt.extracted_ride_time = None
+        existing_receipt.ocr_status = "PENDING"
+        existing_receipt.status = "PENDING"
+        existing_receipt.confirmed_at = None
+
+        existing_receipt.save(
+            update_fields=[
+                "uploaded_by",
+                "image",
+                "image_url",
+                "total_amount",
+                "ocr_raw_text",
+                "extracted_total_amount",
+                "extracted_departure_name",
+                "extracted_arrival_name",
+                "extracted_ride_time",
+                "ocr_status",
+                "status",
+                "confirmed_at",
+                "updated_at",
+            ]
+        )
+        return existing_receipt
 
     receipt = Receipt.objects.create(
         trip=trip,
@@ -217,6 +358,7 @@ def create_receipt(*, trip, user, validated_data):
         status="PENDING",
     )
     return receipt
+
 
 @transaction.atomic
 def confirm_receipt_amount(*, receipt: Receipt, actor, total_amount: int):
@@ -306,6 +448,7 @@ def create_settlements_for_receipt(*, receipt: Receipt, actor):
 
     return created
 
+
 @transaction.atomic
 def mark_settlement_link_opened(*, settlement: Settlement, user):
     """
@@ -322,6 +465,7 @@ def mark_settlement_link_opened(*, settlement: Settlement, user):
     settlement.link_opened_at = timezone.now()
     settlement.save(update_fields=["status", "link_opened_at"])
     return settlement
+
 
 @transaction.atomic
 def mark_settlement_paid_self(*, settlement: Settlement, user):

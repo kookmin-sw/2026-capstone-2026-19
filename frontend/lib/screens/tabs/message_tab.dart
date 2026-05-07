@@ -116,6 +116,7 @@ class SettlementMessage {
 
   String get totalAmountText => '${_formatWon(totalAmount)}원';
   String get shareAmountText => '${_formatWon(shareAmount)}원';
+  bool get isCanceled => status.toUpperCase() == 'CANCELED';
 
   static String _formatWon(int value) {
     return value.toString().replaceAllMapped(
@@ -652,38 +653,48 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   }
 
   Widget _buildSettlementRequestCard(SettlementMessage settlement) {
-   return Align(
+    final isCanceled = settlement.isCanceled;
+
+    return Align(
       alignment: Alignment.centerLeft,
       child: Container(
         width: double.infinity,
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: isCanceled ? const Color(0xFFF3F3F3) : Colors.white,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppColors.border),
+          border: Border.all(
+            color: isCanceled ? const Color(0xFFD0D0D0) : AppColors.border,
+          ),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Row(
+            Row(
               children: [
-                Icon(Icons.receipt_long, color: AppColors.primary, size: 20),
-                SizedBox(width: 6),
+                Icon(
+                  isCanceled ? Icons.block : Icons.receipt_long,
+                  color: isCanceled ? AppColors.gray : AppColors.primary,
+                  size: 20,
+                ),
+                const SizedBox(width: 6),
                 Text(
-                  '정산 요청이 도착했습니다',
+                  isCanceled ? '취소된 정산 정보입니다' : '정산 요청이 도착했습니다',
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w800,
-                    color: AppColors.secondary,
+                    color: isCanceled ? AppColors.gray : AppColors.secondary,
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 8),
             Text(
-              '총 결제액과 1인당 정산금액을 확인한 뒤 정산을 진행해주세요.',
-              style: TextStyle(
+              isCanceled
+                  ? '리더가 정산 정보를 수정하여 이 정산 요청은 더 이상 사용할 수 없습니다.'
+                  : '총 결제액과 1인당 정산금액을 확인한 뒤 정산을 진행해주세요.',
+              style: const TextStyle(
                 fontSize: 12,
                 color: AppColors.gray,
                 height: 1.4,
@@ -693,15 +704,21 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: () => _showSettlementDialog(settlement),
+                onPressed: isCanceled
+                    ? null
+                    : () => _showSettlementDialog(settlement),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
+                  backgroundColor: isCanceled
+                      ? const Color(0xFFD6D6D6)
+                      : AppColors.primary,
                   foregroundColor: Colors.white,
+                  disabledBackgroundColor: const Color(0xFFD6D6D6),
+                  disabledForegroundColor: Colors.white,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10),
                   ),
                 ),
-                child: const Text('정산 정보 확인하기'),
+                child: Text(isCanceled ? '사용할 수 없는 정산입니다' : '정산 정보 확인하기'),
               ),
             ),
           ],
@@ -709,6 +726,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       ),
     );
   }
+
   void _showSettlementDialog(SettlementMessage settlement) {
     bool isChecked = false;
 
@@ -1277,41 +1295,155 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   }
 
   Future<void> _startLeaderSettlementFlow() async {
-    try {
-      final pickedFile = await _picker.pickImage(source: ImageSource.gallery);
+  try {
+    final pickedFile = await _picker.pickImage(source: ImageSource.gallery);
 
-      if (pickedFile == null) {
-        return;
-      }
+    if (pickedFile == null) {
+      return;
+    }
 
-      setState(() {
-        _isSettlementProcessing = true;
-      });
+    setState(() {
+      _isSettlementProcessing = true;
+    });
 
-      final uploadResult = await SettlementService.uploadReceiptImage(
+    Future<Map<String, dynamic>> uploadReceipt({required bool resetExisting}) {
+      return SettlementService.uploadReceiptImage(
         token: AuthSession.token ?? '',
         tripId: widget.room.tripId,
         imageFile: File(pickedFile.path),
+        resetExisting: resetExisting,
+      );
+    }
+
+    Map<String, dynamic> uploadResult;
+
+    try {
+      uploadResult = await uploadReceipt(resetExisting: false);
+    } catch (e) {
+      final errorText = e.toString();
+
+      if (!errorText.contains('이미 정산이 생성된 영수증입니다')) {
+        rethrow;
+      }
+
+      if (!mounted) return;
+
+      final shouldReset = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+            ),
+            title: const Text(
+              '정산 정보 수정',
+              style: TextStyle(
+                fontWeight: FontWeight.w900,
+                color: AppColors.secondary,
+              ),
+            ),
+            content: const Text(
+              '이미 정산 요청이 생성되어 있습니다.\n'
+              '기존 정산 정보를 취소하고 새 영수증으로 다시 등록하시겠습니까?',
+              style: TextStyle(
+                fontSize: 13,
+                height: 1.5,
+                color: AppColors.secondary,
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('아니요'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('다시 등록'),
+              ),
+            ],
+          );
+        },
       );
 
-      final receiptId = _toInt(uploadResult['id']);
+      if (shouldReset != true) {
+        return;
+      }
+
+      uploadResult = await uploadReceipt(resetExisting: true);
+
+      setState(() {
+        for (int i = 0; i < _messages.length; i++) {
+          final oldSettlement = _messages[i].settlement;
+
+          if (_messages[i].isSettlement && oldSettlement != null) {
+            final canceledSettlement = SettlementMessage(
+              settlementId: oldSettlement.settlementId,
+              totalAmount: oldSettlement.totalAmount,
+              shareAmount: oldSettlement.shareAmount,
+              receiptImageUrl: oldSettlement.receiptImageUrl,
+              paymentLink: oldSettlement.paymentLink,
+              status: 'CANCELED',
+            );
+
+            _messages[i] = _Message(
+              id: _messages[i].id,
+              text: '취소된 정산 정보입니다.',
+              time: _messages[i].time,
+              userId: _messages[i].userId,
+              isMe: _messages[i].isMe,
+              isLink: _messages[i].isLink,
+              isSettlement: true,
+              settlement: canceledSettlement,
+              imageFile: _messages[i].imageFile,
+            );
+          }
+        }
+      });
+    }
+
+    final receiptId = _toInt(uploadResult['id']);
 
       if (receiptId == 0) {
         throw Exception('receipt_id를 찾을 수 없습니다.');
       }
 
-      final analyzeResult = await SettlementService.analyzeReceiptOcr(
-        token: AuthSession.token ?? '',
-        receiptId: receiptId,
-      );
-
-      final extractedAmount = _toInt(analyzeResult['extracted_total_amount']);
-
       _currentReceiptId = receiptId;
-      _currentReceiptImageUrl = analyzeResult['receipt_image_url']?.toString();
+      _currentReceiptImageUrl = uploadResult['receipt_image_url']?.toString();
 
-      if (extractedAmount > 0) {
-        _settlementAmountCtrl.text = extractedAmount.toString();
+      try {
+        final ocrResult = await SettlementService.analyzeReceiptOcr(
+          token: AuthSession.token ?? '',
+          receiptId: receiptId,
+        );
+
+        final extractedAmount = _toInt(ocrResult['extracted_total_amount']);
+
+        if (extractedAmount > 0) {
+          _settlementAmountCtrl.text = extractedAmount.toString();
+        } else {
+          _settlementAmountCtrl.clear();
+        }
+      } catch (e) {
+        final errorText = e.toString();
+
+        if (!errorText.contains('수기 정산을 이용해주세요') &&
+            !errorText.contains('영수증 이용 시간이 모집 출발 시간과')) {
+          rethrow;
+        }
+
+        if (!mounted) return;
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('영수증 시간이 모집 출발 시간과 차이가 큽니다. 수기 정산으로 진행합니다.'),
+          ),
+        );
+
+        _settlementAmountCtrl.clear();
       }
 
       try {
@@ -1375,6 +1507,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                 decoration: const InputDecoration(
                   labelText: '총 결제 금액',
                   hintText: '예: 18400',
+                  hintStyle: TextStyle(color: AppColors.gray),
                 ),
               ),
               const SizedBox(height: 12),
@@ -1383,6 +1516,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                 decoration: const InputDecoration(
                   labelText: '카카오페이 송금 링크',
                   hintText: 'https://qr.kakaopay.com/...',
+                  hintStyle: TextStyle(color: AppColors.gray),
                 ),
               ),
               const SizedBox(height: 12),

@@ -125,6 +125,7 @@ class SettlementService {
     required String token,
     required int tripId,
     required File imageFile,
+    bool resetExisting = false,
   }) async {
     final uri = Uri.parse(
       '$serverUrl/api/settlements/trips/$tripId/receipt/',
@@ -133,6 +134,7 @@ class SettlementService {
     final request = http.MultipartRequest('POST', uri);
 
     request.headers['Authorization'] = 'Token $token';
+    request.fields['reset_existing'] = resetExisting ? 'true' : 'false';
 
     request.files.add(
       await http.MultipartFile.fromPath(
