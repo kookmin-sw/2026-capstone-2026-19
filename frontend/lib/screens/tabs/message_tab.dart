@@ -142,7 +142,7 @@ class _MessageTabState extends State<MessageTab> {
 
   // 🌟 실제 로그인 환경에서는 이 닉네임을 전역 상태(UserProvider 등)에서 가져와야 합니다.
   // 현재는 TripService의 토큰 흐름에 맞춰 상수로 두거나 생성 시 받아와야 합니다.
-  final String _currentUsername = "my_username";
+  String get _currentUsername => AuthSession.username ?? '';
 
   void _onChatRoomsChanged() {
     _fetchChatRooms();
