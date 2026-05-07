@@ -57,6 +57,7 @@ class ChatRoomSerializer(serializers.ModelSerializer):
 
 class ChatMessageSerializer(serializers.ModelSerializer):
     sender_user_id = serializers.IntegerField(source="sender_user.id", read_only=True)
+    sender_username = serializers.CharField(source="sender_user.username", read_only=True)
 
     class Meta:
         model = ChatMessage
@@ -64,7 +65,8 @@ class ChatMessageSerializer(serializers.ModelSerializer):
             "id",
             "room",
             "sender_user_id",
+            "sender_username",
             "message",
             "sent_at",
         ]
-        read_only_fields = ["id", "sender_user_id", "sent_at"]
+        read_only_fields = ["id", "sender_user_id", "sender_username", "sent_at"]

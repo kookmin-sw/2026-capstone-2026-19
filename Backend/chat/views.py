@@ -3,8 +3,8 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from django.db.models import Q
-from .models import ChatRoom
-from .serializers import ChatRoomSerializer
+from .models import ChatRoom, ChatMessage
+from .serializers import ChatRoomSerializer, ChatMessageSerializer
 from trips.models import Trip, TripParticipant
 
 
@@ -49,3 +49,37 @@ class ChatRoomCreateView(APIView):
             {"message": "Chat room create endpoint is temporarily available."},
             status=status.HTTP_201_CREATED,
         )
+
+class ChatRoomMessageListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, room_id):
+        user = request.user
+
+        try:
+            room = ChatRoom.objects.select_related("trip").get(id=room_id)
+        except ChatRoom.DoesNotExist:
+            return Response(
+                {"detail": "채팅방을 찾을 수 없습니다."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        is_leader = room.trip.leader_user_id == user.id
+        is_participant = TripParticipant.objects.filter(
+            trip=room.trip,
+            user=user,
+            status="JOINED",
+        ).exists()
+
+        if not is_leader and not is_participant:
+            return Response(
+                {"detail": "이 채팅방의 메시지를 조회할 권한이 없습니다."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        messages = ChatMessage.objects.filter(
+            room=room,
+        ).select_related("sender_user").order_by("sent_at")
+
+        serializer = ChatMessageSerializer(messages, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)

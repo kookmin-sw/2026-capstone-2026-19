@@ -10,6 +10,7 @@ import '../../utils/colors.dart';
 import '../../service/trip_service.dart';
 import '../../service/settlement_service.dart';
 import '../../config/app_config.dart';
+import 'package:http/http.dart' as http;
 
 // ── 채팅방 모델 ──────────────────────────────────
 class ChatRoomModel {
@@ -303,6 +304,18 @@ class ChatRoomScreen extends StatefulWidget {
 class _ChatRoomScreenState extends State<ChatRoomScreen> {
   WebSocketChannel? _channel;
   List<_Message> _messages = [];
+
+  List<_Message> get _settlementMessages {
+    return _messages
+        .where((message) => message.isSettlement && message.settlement != null)
+        .toList();
+  }
+
+  List<_Message> get _chatMessages {
+    return _messages
+        .where((message) => !(message.isSettlement && message.settlement != null))
+        .toList();
+  }
   final TextEditingController _inputCtrl = TextEditingController();
   final ScrollController _scrollCtrl = ScrollController();
   // 테스트용 리더 토큰. 실제 배포에서는 로그인 후 저장된 토큰을 사용해야 함.
@@ -324,12 +337,14 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   @override
   void initState() {
     super.initState();
+    _loadChatMessages();
     _connectWebSocket();
     _loadPendingSettlementsForThisRoom();
   }
 
   void _connectWebSocket() {
-    final wsUrl = Uri.parse('${AppConfig.wsBaseUrl}/ws/chat/${widget.room.id}/');
+    final token = Uri.encodeComponent(AuthSession.token ?? '');
+    final wsUrl = Uri.parse('${AppConfig.wsBaseUrl}/ws/chat/${widget.room.id}/?token=$token');
     _channel = WebSocketChannel.connect(wsUrl);
 
     _channel!.stream.listen((data) {
@@ -379,6 +394,53 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
       _scrollToBottom();
     });
+  }
+
+  Future<void> _loadChatMessages() async {
+    try {
+      final response = await http.get(
+        Uri.parse('${AppConfig.apiBaseUrl}/chat/rooms/${widget.room.id}/messages/'),
+        headers: {
+          'Authorization': 'Token ${AuthSession.token ?? ''}',
+        },
+      );
+
+      if (response.statusCode != 200) {
+        print('기존 채팅 메시지 불러오기 실패: ${response.statusCode} / ${response.body}');
+        return;
+      }
+
+      final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+
+      if (decoded is! List) {
+        return;
+      }
+
+      final loadedMessages = decoded.map<_Message>((item) {
+        final map = Map<String, dynamic>.from(item as Map);
+
+        final senderUsername = map['sender_username']?.toString() ?? '';
+        final senderUserId = map['sender_user_id']?.toString() ?? '';
+
+        return _Message(
+          id: map['id']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString(),
+          text: map['message']?.toString() ?? '',
+          time: _formatMessageTime(map['sent_at']?.toString()),
+          userId: senderUsername.isNotEmpty ? senderUsername : senderUserId,
+          isMe: senderUsername == widget.myNickname,
+        );
+      }).toList();
+
+      if (!mounted) return;
+
+      setState(() {
+        _messages.insertAll(0, loadedMessages);
+      });
+
+      _scrollToBottom();
+    } catch (e) {
+      print('기존 채팅 메시지 불러오기 오류: $e');
+    }
   }
 
   Future<void> _loadPendingSettlementsForThisRoom() async {
@@ -527,12 +589,25 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       body: Column(
         children: [
           _buildNoticeBar(),
+
+          if (_settlementMessages.isNotEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 4),
+              color: const Color(0xFFF8F8F8),
+              child: Column(
+                children: _settlementMessages
+                    .map((message) => _buildMessageBubble(message))
+                    .toList(),
+              ),
+            ),
+
           Expanded(
             child: ListView.builder(
               controller: _scrollCtrl,
               padding: const EdgeInsets.fromLTRB(14, 16, 14, 14),
-              itemCount: _messages.length,
-              itemBuilder: (_, i) => _buildMessageBubble(_messages[i]),
+              itemCount: _chatMessages.length,
+              itemBuilder: (_, i) => _buildMessageBubble(_chatMessages[i]),
             ),
           ),
           _buildInputBar(),
@@ -1481,6 +1556,25 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     if (value is int) return value;
     if (value is double) return value.toInt();
     return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  String _formatMessageTime(String? sentAt) {
+    if (sentAt == null || sentAt.isEmpty) {
+      return TimeOfDay.now().format(context);
+    }
+
+    final parsed = DateTime.tryParse(sentAt);
+
+    if (parsed == null) {
+      return TimeOfDay.now().format(context);
+    }
+
+    final localTime = parsed.toLocal();
+
+    return TimeOfDay(
+      hour: localTime.hour,
+      minute: localTime.minute,
+    ).format(context);
   }
 
   void _showLeaderSettlementDialog() {
