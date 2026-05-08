@@ -29,7 +29,7 @@ class TripSerializer(serializers.ModelSerializer):
             'arrive_name', 'arrive_lat', 'arrive_lng',
             'depart_time', 'capacity', 'status', 'estimated_fare',
             'current_count', 'participants',
-            'leader_user_id', 'host_nickname', 'is_mine',
+            'leader_user_id', 'host_nickname', 'is_mine','taken_seats', 'kakaopay_link',
         ]
 
     def get_current_count(self, obj):
@@ -44,3 +44,7 @@ class TripSerializer(serializers.ModelSerializer):
         if not request or not request.user.is_authenticated:
             return False
         return obj.leader_user_id == request.user.id
+
+    def get_taken_seats(self, obj):
+            # 현재 트립에서 'JOINED' 상태인 사람들의 'seat_position'만 리스트로 쫙 뽑아줍니다.
+            return list(obj.trip_participants.filter(status="JOINED").values_list('seat_position', flat=True))

@@ -22,10 +22,10 @@ class TripCreateListView(APIView):
         flutter_seat = data.get('seat_position')
 
         # 1. 좌석 매핑 확인
-        django_seat = self.SEAT_MAP.get(flutter_seat)
-        if not django_seat:
-            return Response({'message': '올바른 좌석을 선택해주세요.'}, status=status.HTTP_400_BAD_REQUEST)
+        valid_seats = [choice[0] for choice in TripParticipant.SeatChoices.choices]
 
+        if flutter_seat not in valid_seats:
+            return Response({'message': '올바른 좌석을 선택해주세요.'}, status=status.HTTP_400_BAD_REQUEST)
         # 2. 트랜잭션 처리 (Trip 생성과 Participant 생성을 한 번에)
         try:
             with transaction.atomic():
@@ -42,7 +42,7 @@ class TripCreateListView(APIView):
                         trip=trip,
                         user=request.user,
                         role=TripParticipant.RoleChoices.LEADER,
-                        seat_position=django_seat,
+                        seat_position=flutter_seat,
                         status=TripParticipant.StatusChoices.JOINED
                     )
 

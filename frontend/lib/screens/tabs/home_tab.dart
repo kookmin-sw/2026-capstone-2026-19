@@ -543,7 +543,7 @@ class _HomeTabState extends State<HomeTab> {
         // 지도 로딩 오버레이 - 위젯 트리 구조 유지를 위해 Visibility 사용
         // 위치 로딩 + 지도 준비 완료 후에만 숨김
         Visibility(
-          visible: _locationLoading || !_isMapReady,
+          visible: _locationLoading,
           child: Container(
             color: Colors.white.withOpacity(0.7),
             child: const Center(
@@ -626,6 +626,7 @@ class _HomeTabState extends State<HomeTab> {
     return KakaoMap(
       key: const ValueKey('kakao_map_stable'),
       center: initialCenter,
+      markers: _getMapMarkers().toList(),
       onMapCreated: (controller) async {
         _mapController = controller;
 
