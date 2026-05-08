@@ -38,6 +38,8 @@ class PaymentChannelUpsertSerializer(serializers.ModelSerializer):
 
         if not value.startswith("http://") and not value.startswith("https://"):
             raise serializers.ValidationError("송금 링크는 http:// 또는 https://로 시작해야 합니다.")
+        if "qr.kakaopay.com" not in value:
+                raise serializers.ValidationError("올바른 카카오페이 송금 링크 형식이 아닙니다.")
 
         return value
 

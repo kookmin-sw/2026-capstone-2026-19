@@ -28,6 +28,7 @@ class RidePin {
   final int max, cur; // 최대 모집 인원, 현재 참여 인원
   final double lat, lng; // 실제 좌표
   final bool isMine;
+  final List<String> takenSeats;
 
   const RidePin({
     required this.id, required this.hostId,
@@ -35,6 +36,7 @@ class RidePin {
     required this.max, required this.cur,
     required this.lat, required this.lng,
     this.isMine = false,
+    this.takenSeats = const [],
   });
 
   bool get isFull => cur >= max; // 최대 인원 모집 완료 시 마감 상태로 전환
@@ -45,29 +47,8 @@ class RidePin {
   }
 }
 
-// 더미 핀 데이터 (실제 서비스에서는 서버 API로 교체)
-// 전역 핀 리스트 - 매칭 탭에서 생성된 핀이 여기에 추가됨
-List<RidePin> globalPins = [
-  RidePin(id:'1', hostId:'taxi_kim',  dept:'강남역 2번출구', dest:'김포공항',    time:'14:30', max:4, cur:2, lat:37.4979, lng:127.0276),
-  RidePin(id:'2', hostId:'seoul_lee', dept:'홍대입구역',    dest:'인천공항 T1', time:'15:00', max:3, cur:1, lat:37.5574, lng:126.9249),
-  RidePin(id:'3', hostId:'rider_park',dept:'잠실역 8번출구',dest:'강남역',       time:'14:45', max:4, cur:3, lat:37.5133, lng:127.1001),
-  RidePin(id:'4', hostId:'go_choi',   dept:'신촌역',        dest:'판교역',       time:'16:00', max:2, cur:0, lat:37.5551, lng:126.9368),
-  RidePin(id:'5', hostId:'map_yoon',  dept:'판교역',        dest:'강남역',       time:'17:00', max:3, cur:2, lat:37.3947, lng:127.1111),
-  RidePin(id:'6', hostId:'fast_jung', dept:'수원역',        dest:'사당역',       time:'18:30', max:4, cur:1, lat:37.2663, lng:127.0027),
-];
-
-// 로컬에서 사용할 핀 리스트 (전역 핀 리스트의 별칭)
-const List<RidePin> _allPins = [
-  RidePin(id:'1', hostId:'taxi_kim',  dept:'강남역 2번출구', dest:'김포공항',    time:'14:30', max:4, cur:2, lat:37.4979, lng:127.0276),
-  RidePin(id:'2', hostId:'seoul_lee', dept:'홍대입구역',    dest:'인천공항 T1', time:'15:00', max:3, cur:1, lat:37.5574, lng:126.9249),
-  RidePin(id:'3', hostId:'rider_park',dept:'잠실역 8번출구',dest:'강남역',       time:'14:45', max:4, cur:3, lat:37.5133, lng:127.1001),
-  RidePin(id:'4', hostId:'go_choi',   dept:'신촌역',        dest:'판교역',       time:'16:00', max:2, cur:0, lat:37.5551, lng:126.9368),
-  RidePin(id:'5', hostId:'map_yoon',  dept:'판교역',        dest:'강남역',       time:'17:00', max:3, cur:2, lat:37.3947, lng:127.1111),
-  RidePin(id:'6', hostId:'fast_jung', dept:'수원역',        dest:'사당역',       time:'18:30', max:4, cur:1, lat:37.2663, lng:127.0027),
-];
-
 // ============================================================
-
+List<RidePin> globalPins = [];
 // 홈 탭 상태 변화 관리 클래스 (탭 전환 시)
 class HomeTab extends StatefulWidget {
   final OnTabChange? onTabChange;
@@ -150,6 +131,7 @@ class _HomeTabState extends State<HomeTab> {
         lat: double.tryParse(trip['depart_lat'].toString()) ?? 0.0,
         lng: double.tryParse(trip['depart_lng'].toString()) ?? 0.0,
         isMine: trip['is_mine'] == true || (trip['host_nickname'] ?? hostId).toString() == (AuthSession.username ?? ''),
+        takenSeats: (trip['taken_seats'] as List? ?? []).map((s) => s.toString()).toList(),
       );
     }).toList();
 

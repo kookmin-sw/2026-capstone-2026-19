@@ -16,6 +16,10 @@ class TripSerializer(serializers.ModelSerializer):
     leader_user_id = serializers.IntegerField(source='leader_user.id', read_only=True)
     host_nickname = serializers.SerializerMethodField()
     is_mine = serializers.SerializerMethodField()
+    kakaopay_link = serializers.ReadOnlyField(source='payment_channel.kakaopay_link')
+
+    # 🟢 2. 현재 이 핀에서 'JOINED' 상태인 참여자들의 좌석 리스트만 뽑기
+    taken_seats = serializers.SerializerMethodField()
 
     class Meta:
         model = Trip

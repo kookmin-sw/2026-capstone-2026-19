@@ -9,13 +9,7 @@ from .serializers import TripSerializer
 class TripCreateListView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
-    # 좌석 이름 매핑 사전 (Flutter -> Django Model)
-    SEAT_MAP = {
-        '조수석': TripParticipant.SeatChoices.FRONT_PASSENGER,
-        '왼쪽 창가': TripParticipant.SeatChoices.REAR_LEFT,
-        '가운데': TripParticipant.SeatChoices.REAR_MIDDLE,
-        '오른쪽 창가': TripParticipant.SeatChoices.REAR_RIGHT,
-    }
+
 
     def get(self, request):
         # 열려있는 핀 목록만 조회
@@ -75,14 +69,6 @@ class TripCreateListView(APIView):
 
 class TripJoinView(APIView):
     permission_classes = [permissions.IsAuthenticated]
-
-    # 좌석 이름 매핑 사전 (생성 View와 동일하게 유지)
-    SEAT_MAP = {
-        '조수석': TripParticipant.SeatChoices.FRONT_PASSENGER,
-        '왼쪽 창가': TripParticipant.SeatChoices.REAR_LEFT,
-        '가운데': TripParticipant.SeatChoices.REAR_MIDDLE,
-        '오른쪽 창가': TripParticipant.SeatChoices.REAR_RIGHT,
-    }
 
     def post(self, request, pk):
         try:

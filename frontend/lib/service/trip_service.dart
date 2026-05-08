@@ -13,6 +13,15 @@ class TripService {
   static void notifyTripsChanged() {
     tripsRefreshNotifier.value++;
   }
+  static String _mapSeatToEn(String koSeat) {
+    const map = {
+      '조수석': 'FRONT_PASSENGER',
+      '왼쪽 창가': 'REAR_LEFT',
+      '가운데': 'REAR_MIDDLE',
+      '오른쪽 창가': 'REAR_RIGHT',
+    };
+    return map[koSeat] ?? koSeat; // 매핑이 없으면 그대로 반환 (이미 영어일 경우 대비)
+  }
 
   static void notifyChatRoomsChanged() {
     chatRoomsRefreshNotifier.value++;
@@ -46,7 +55,7 @@ class TripService {
         'arrive_lng': double.parse(destLng.toStringAsFixed(6)),
         'depart_time': departTime.toIso8601String(),
         'capacity': capacity,
-        'seat_position': seatPosition,
+        'seat_position': _mapSeatToEn(seatPosition),
         'kakaopay_link': kakaoLink,
       };
 
@@ -219,7 +228,7 @@ class TripService {
           },
 
           body: jsonEncode({
-          'seat_position': seatPosition,
+          'seat_position': _mapSeatToEn(seatPosition),
            }),
         );
 
@@ -333,7 +342,7 @@ class TripService {
           var request = http.MultipartRequest('POST', Uri.parse('$serverUrl/api/settlements/'));
           request.headers['Authorization'] = 'Token $token';
           request.fields['trip_id'] = tripId.toString();
-          request.fields['total_fare'] = totalFare.toString();
+          request.fields['total_amount'] = totalFare.toString();
 
           // 이미지가 있을 경우만 첨부
           if (imageFile != null) {

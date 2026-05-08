@@ -73,7 +73,10 @@ class _MatchingTabState extends State<MatchingTab> with SingleTickerProviderStat
 
     if (mounted) {
       setState(() {
-        _serverPins = data.map((item) => home.RidePin(
+        _serverPins = data.map((item) {
+        final List<dynamic> rawSeats = item['taken_seats'] ?? [];
+        final List<String> takenSeats = rawSeats.map((s) => s.toString()).toList();
+        return home.RidePin(
           id: item['id'].toString(),
           hostId: item['host_nickname'] ?? '익명',
           dept: item['depart_name'],
@@ -84,7 +87,8 @@ class _MatchingTabState extends State<MatchingTab> with SingleTickerProviderStat
           lat: double.parse(item['depart_lat'].toString()),
           lng: double.parse(item['depart_lng'].toString()),
           isMine: item['is_mine'] == true,
-        )).toList();
+          takenSeats: takenSeats,
+        );}).toList();
         _isFetching = false;
       });
     }
@@ -251,6 +255,7 @@ class _MatchingTabState extends State<MatchingTab> with SingleTickerProviderStat
                               'time': pin.time,
                               'max': pin.max,
                               'cur': pin.cur,
+                              'takenSeats': pin.takenSeats,
                             },
                           ),
                         ),
@@ -702,8 +707,25 @@ class RideJoinScreen extends StatefulWidget {
 
 class _RideJoinScreenState extends State<RideJoinScreen> {
   String? _selectedSeat;
-  final List<String> _takenSeats = []; // 빈 배열로 수정 완료!
+  late List<String> _takenSeats; // 빈 배열로 수정 완료!
   bool _isLoading = false;
+  @override
+    void initState() {
+      super.initState();
+      // 부모 위젯(MatchingTab)에서 넘겨준 'takenSeats' 리스트를 가져옵니다.
+      _takenSeats = List<String>.from(widget.pin['takenSeats'] ?? []);
+    }
+
+    // 여기에 이어서 아래의 매핑 함수를 추가하세요.
+    String _mapKoToEn(String ko) {
+      switch (ko) {
+        case '조수석': return 'FRONT_PASSENGER';
+        case '왼쪽 창가': return 'REAR_LEFT';
+        case '가운데': return 'REAR_MIDDLE';
+        case '오른쪽 창가': return 'REAR_RIGHT';
+        default: return '';
+      }
+    }
 
   @override
   Widget build(BuildContext context) {
@@ -924,7 +946,7 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
   }
 
   Widget _seatButton(String label, IconData icon) {
-    final isTaken = _takenSeats.contains(label);
+    final isTaken = _takenSeats.contains(_mapKoToEn(label));
     final isSelected = _selectedSeat == label;
     final Color bg = isTaken ? const Color(0xFFF5F5F5) : isSelected ? AppColors.primaryLight : AppColors.bg;
     final Color border = isTaken ? AppColors.gray : isSelected ? AppColors.primary : AppColors.border;
