@@ -206,32 +206,24 @@ class AuthService {
 
   // 9. 이용 내역 데이터 반환 (List<Map> 타입으로 에러 방지)
   static Future<List<Map<String, dynamic>>> getTripHistory() async {
-    await Future.delayed(const Duration(milliseconds: 800));
-    return [
-      {
-        'date': '2026.04.10 18:30',
-        'status': '정산 완료',
-        'team': '퇴근길 택시팟',
-        'dept': '국민대 정문',
-        'dest': '길음역',
-        'members': 4,
-        'total': '6,400',
-        'my': '1,600',
-      },
-      {
-        'date': '2026.04.05 22:10',
-        'status': '취소됨',
-        'team': '야작 끝 집가자',
-        'dept': '국민대 조형관',
-        'dest': '성신여대입구역',
-        'members': 2,
-        'total': '8,000',
-        'my': '0',
-      },
-    ];
-  }
+    final url = Uri.parse('$baseUrl/history/');
 
-  // 10. 매너 로그 데이터 반환 (실제 API 연동)
+        final response = await http.get(
+          url,
+          headers: {
+            'Authorization': 'Token ${AuthSession.token}', // 로그인 토큰
+            'Content-Type': 'application/json',
+          },
+        );
+
+        if (response.statusCode == 200) {
+          // 한글 깨짐 방지를 위해 utf8.decode 사용
+          final List<dynamic> data = jsonDecode(utf8.decode(response.bodyBytes));
+          return data.map((item) => item as Map<String, dynamic>).toList();
+        } else {
+          throw Exception('이용 내역 조회 실패: ${response.statusCode}');
+        }
+      }
   static Future<List<Map<String, dynamic>>> getTrustScoreLogs() async {
     final url = Uri.parse('${AppConfig.apiBaseUrl}/api/moderation/trust-score-logs/');
     final response = await http.get(
@@ -243,7 +235,8 @@ class AuthService {
     );
 
     if (response.statusCode == 200) {
-      final List<dynamic> data = jsonDecode(response.body);
+      // 🚨 여기를 9번 함수와 똑같이 utf8.decode 로 감싸주세요!
+      final List<dynamic> data = jsonDecode(utf8.decode(response.bodyBytes));
       return data.map((item) => item as Map<String, dynamic>).toList();
     } else {
       throw Exception('매너 로그 조회 실패: ${response.statusCode}');
@@ -282,8 +275,7 @@ class AuthService {
       );
 
       if (response.statusCode == 200) {
-        final data = jsonDecode(utf8.decode(response.bodyBytes));
-        return {'success': true, 'data': data};
+        return jsonDecode(utf8.decode(response.bodyBytes));
       }
       return {'success': false, 'message': '프로필 로딩 실패'};
     } catch (e) {

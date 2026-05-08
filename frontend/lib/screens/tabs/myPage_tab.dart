@@ -405,27 +405,22 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   Future<void> _fetchHistory() async {
-    try {
-      // 더미 데이터 생성
-      await Future.delayed(const Duration(milliseconds: 800));
-      final history = [
-        {'date':'2024.12.20','team':'강남→김포 동승팀', 'dept':'강남역 2번출구','dest':'김포공항', 'members':4,'total':'18,400','my':'4,600', 'status':'완료'},
-        {'date':'2024.12.15','team':'홍대→인천공항 팀', 'dept':'홍대입구역', 'dest':'인천공항 T1','members':3,'total':'34,200','my':'11,400','status':'완료'},
-        {'date':'2024.12.10','team':'잠실→강남 3인팀', 'dept':'잠실역 8번', 'dest':'강남역', 'members':3,'total':'12,600','my':'4,200', 'status':'완료'},
-        {'date':'2024.11.28','team':'신촌→판교 팀', 'dept':'신촌역', 'dest':'판교역', 'members':2,'total':'28,000','my':'14,000','status':'완료'},
-      ];
+      try {
+        // 🚨 기존 더미 데이터 생성 코드(await Future.delayed... 부터)를 싹 지우고
+        // 아래처럼 AuthService를 호출해서 진짜 서버 데이터를 가져옵니다!
+        final history = await AuthService.getTripHistory();
 
-      setState(() {
-        _histories = history;
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _error = '이용 내역을 불러오는데 실패했습니다: $e';
-        _isLoading = false;
-      });
+        setState(() {
+          _histories = history;
+          _isLoading = false;
+        });
+      } catch (e) {
+        setState(() {
+          _error = '이용 내역을 불러오는데 실패했습니다: $e';
+          _isLoading = false;
+        });
+      }
     }
-  }
 
   Widget build(BuildContext context) {
     // 📍 1. 로그인 상태를 먼저 체크합니다. (가장 중요!)
