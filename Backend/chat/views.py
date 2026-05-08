@@ -3,9 +3,11 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from django.db.models import Q
+from django.utils import timezone
 from .models import ChatRoom, ChatMessage
 from .serializers import ChatRoomSerializer, ChatMessageSerializer
 from trips.models import Trip, TripParticipant
+
 
 
 class ChatRoomListCreateView(APIView):
@@ -26,9 +28,19 @@ class ChatRoomListCreateView(APIView):
             status="JOINED",
         ).values_list("trip_id", flat=True)
 
+        # 만료된 채팅방은 목록 조회 시 아카이브 처리
+        now = timezone.now()
+
+        ChatRoom.objects.filter(
+            is_archived=False,
+            expires_at__isnull=False,
+            expires_at__lte=now,
+        ).update(is_archived=True)
+
         rooms = ChatRoom.objects.filter(
             Q(trip_id__in=leader_trip_ids) |
-            Q(trip_id__in=participant_trip_ids)
+            Q(trip_id__in=participant_trip_ids),
+            is_archived=False,
         ).distinct().order_by("-created_at")
 
         serializer = ChatRoomSerializer(
