@@ -64,11 +64,19 @@ class _Message {
   final bool isMe, isLink, isSettlement;
   final SettlementMessage? settlement;
   final File? imageFile;
+  final String? imageUrl;
 
   const _Message({
-    required this.id, required this.text, required this.time, required this.userId,
-    required this.isMe, this.isLink = false, this.isSettlement = false,
-    this.settlement, this.imageFile,
+    required this.id,
+    required this.text,
+    required this.time,
+    required this.userId,
+    required this.isMe,
+    this.isLink = false,
+    this.isSettlement = false,
+    this.settlement,
+    this.imageFile,
+    this.imageUrl,
   });
 }
 
@@ -403,6 +411,21 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           return;
         }
 
+        if (messageType == 'image_message') {
+          _messages.add(
+            _Message(
+              id: 'msg_${decoded['message_id'] ?? DateTime.now().millisecondsSinceEpoch}',
+              userId: decoded['sender']?.toString() ?? '',
+              text: '',
+              time: _formatMessageTime(decoded['sent_at']?.toString()),
+              isMe: decoded['sender'] == widget.myNickname,
+              imageUrl: _normalizeImageUrl(decoded['image_url']),
+            ),
+          );
+
+          return;
+        }
+
         if (messageType == 'settlement_request') {
           final settlementRaw = decoded['settlement'];
 
@@ -438,6 +461,66 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     });
   }
 
+  Future<Map<String, dynamic>> _uploadChatImage(File imageFile) async {
+    final uri = Uri.parse(
+      '${AppConfig.apiBaseUrl}/chat/rooms/${widget.room.id}/images/',
+    );
+
+    final request = http.MultipartRequest('POST', uri);
+    request.headers['Authorization'] = 'Token ${AuthSession.token ?? ''}';
+    request.files.add(
+      await http.MultipartFile.fromPath('image', imageFile.path),
+    );
+
+    final streamedResponse = await request.send();
+    final response = await http.Response.fromStream(streamedResponse);
+    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+
+    if (response.statusCode == 201 && decoded is Map<String, dynamic>) {
+      return decoded;
+    }
+
+    throw Exception(
+      '이미지 메시지 업로드 실패: ${response.statusCode} ${response.body}',
+    );
+  }
+
+  String? _normalizeImageUrl(dynamic value) {
+    final raw = value?.toString().trim();
+
+    if (raw == null || raw.isEmpty) {
+      return null;
+    }
+
+    final baseUrl = AppConfig.apiBaseUrl.replaceFirst(RegExp(r'/+$'), '');
+    final uri = Uri.tryParse(raw);
+
+    if (uri != null && uri.hasScheme) {
+      final host = uri.host;
+
+      final shouldReplaceHost = host == 'localhost' ||
+          host == '127.0.0.1' ||
+          host == '10.0.2.2' ||
+          host == 'web' ||
+          host == 'backend' ||
+          host == 'db';
+
+      if (shouldReplaceHost) {
+        final path = uri.path.startsWith('/') ? uri.path : '/${uri.path}';
+        final query = uri.hasQuery ? '?${uri.query}' : '';
+        return '$baseUrl$path$query';
+      }
+
+      return raw;
+    }
+
+    if (raw.startsWith('/')) {
+      return '$baseUrl$raw';
+    }
+
+    return '$baseUrl/$raw';
+  }
+
   Future<void> _loadChatMessages() async {
     try {
       final response = await http.get(
@@ -465,11 +548,14 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         final senderUserId = map['sender_user_id']?.toString() ?? '';
 
         return _Message(
-          id: map['id']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString(),
+          id: 'msg_${map['id']}',
+          userId: senderUsername.isNotEmpty ? senderUsername : senderUserId,
           text: map['message']?.toString() ?? '',
           time: _formatMessageTime(map['sent_at']?.toString()),
-          userId: senderUsername.isNotEmpty ? senderUsername : senderUserId,
           isMe: senderUsername == widget.myNickname,
+          imageUrl: map['message_type'] == 'IMAGE'
+            ? _normalizeImageUrl(map['image_url'])
+            : null,
         );
       }).toList();
 
@@ -674,7 +760,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
       return _buildSettlementRequestCard(msg.settlement!);
     }
 
-    if (msg.imageFile != null) {
+    if (msg.imageFile != null || (msg.imageUrl != null && msg.imageUrl!.isNotEmpty)) {
       return Align(
         alignment: msg.isMe ? Alignment.centerRight : Alignment.centerLeft,
         child: Container(
@@ -688,10 +774,30 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             border: Border.all(color: AppColors.border),
           ),
           clipBehavior: Clip.antiAlias,
-          child: Image.file(
-            msg.imageFile!,
-            fit: BoxFit.cover,
-          ),
+          child: msg.imageFile != null
+              ? Image.file(
+                  msg.imageFile!,
+                  fit: BoxFit.cover,
+                )
+              : Image.network(
+                  msg.imageUrl!,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) {
+                    return const SizedBox(
+                      width: 220,
+                      height: 160,
+                      child: Center(
+                        child: Text(
+                          '이미지를 불러올 수 없습니다.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: AppColors.gray,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
         ),
       );
     }
@@ -1097,6 +1203,15 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                             _pinnedNotice = notice;
                           });
 
+                          _channel?.sink.add(
+                            jsonEncode({
+                              'type': 'settlement_completed',
+                              'message': '정산이 완료되었습니다.',
+                              'pinned_notice': notice,
+                              'expires_at': result['expires_at']?.toString(),
+                            }),
+                          );
+
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
                               content: Text('정산이 완료되었습니다.'),
@@ -1151,7 +1266,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   }
 
   void _openReceiptImage(String? imageUrl) {
-    if (imageUrl == null || imageUrl.isEmpty) {
+    final normalizedImageUrl = _normalizeImageUrl(imageUrl);
+
+    if (normalizedImageUrl == null || normalizedImageUrl.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('등록된 이용내역 이미지가 없습니다.')),
       );
@@ -1167,7 +1284,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             children: [
               InteractiveViewer(
                 child: Image.network(
-                  imageUrl,
+                  normalizedImageUrl,
                   fit: BoxFit.contain,
                   errorBuilder: (_, __, ___) {
                     return const Padding(
@@ -1555,24 +1672,14 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
       if (pickedFile == null) return;
 
-      setState(() {
-        _messages.add(
-          _Message(
-            id: DateTime.now().millisecondsSinceEpoch.toString(),
-            userId: widget.myNickname,
-            text: '',
-            time: TimeOfDay.now().format(context),
-            isMe: true,
-            imageFile: File(pickedFile.path),
-          ),
-        );
-      });
+      await _uploadChatImage(File(pickedFile.path));
 
       _scrollToBottom();
     } catch (e) {
       if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('이미지 선택 실패: $e')),
+        SnackBar(content: Text('이미지 전송 실패: $e')),
       );
     }
   }

@@ -66,6 +66,7 @@ class ChatRoomSerializer(serializers.ModelSerializer):
 class ChatMessageSerializer(serializers.ModelSerializer):
     sender_user_id = serializers.IntegerField(source="sender_user.id", read_only=True)
     sender_username = serializers.CharField(source="sender_user.username", read_only=True)
+    image_url = serializers.SerializerMethodField()
 
     class Meta:
         model = ChatMessage
@@ -75,6 +76,25 @@ class ChatMessageSerializer(serializers.ModelSerializer):
             "sender_user_id",
             "sender_username",
             "message",
+            "message_type",
+            "image_url",
             "sent_at",
         ]
-        read_only_fields = ["id", "sender_user_id", "sender_username", "sent_at"]
+        read_only_fields = [
+            "id",
+            "sender_user_id",
+            "sender_username",
+            "message_type",
+            "image_url",
+            "sent_at",
+        ]
+
+    def get_image_url(self, obj):
+        if not obj.image:
+            return None
+
+        request = self.context.get("request")
+        if request:
+            return request.build_absolute_uri(obj.image.url)
+
+        return obj.image.url

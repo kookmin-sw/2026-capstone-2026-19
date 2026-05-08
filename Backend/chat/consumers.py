@@ -89,6 +89,21 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 },
             )
             return
+        
+        if message_type == "settlement_completed":
+            await self.channel_layer.group_send(
+                self.room_group_name,
+                {
+                    "type": "broadcast_message",
+                    "message_type": "settlement_completed",
+                    "sender": sender,
+                    "sender_user_id": self.user.id if self.user.is_authenticated else None,
+                    "message": data.get("message", "정산이 완료되었습니다."),
+                    "pinned_notice": data.get("pinned_notice"),
+                    "expires_at": data.get("expires_at"),
+                },
+            )
+            return
 
         message = data.get("message", "")
         saved_message = await self._save_chat_message(message)
@@ -117,6 +132,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                     "message_id": event.get("message_id"),
                     "sent_at": event.get("sent_at"),
                     "settlement": event.get("settlement"),
+                    "image_url": event.get("image_url"),
                     "pinned_notice": event.get("pinned_notice"),
                     "expires_at": event.get("expires_at"),
                 },
