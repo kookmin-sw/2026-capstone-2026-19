@@ -865,14 +865,7 @@ class _MannerScreenState extends State<_MannerScreen> {
 
   Future<void> _fetchMannerLogs() async {
     try {
-      // 더미 데이터
-      await Future.delayed(const Duration(milliseconds: 800));
-      final logs = [
-        {'event_type': 'TRIP_PARTICIPATION_COMPLETED', 'direction': 'GAIN', 'applied_delta': '+2.5', 'score_after': '42.0', 'reason_detail': '동승 완료 - 정산 완료', 'created_at': '2024-12-20T14:30:00'},
-        {'event_type': 'FAST_SETTLEMENT', 'direction': 'GAIN', 'applied_delta': '+1.0', 'score_after': '39.5', 'reason_detail': '빠른 정산 보너스', 'created_at': '2024-12-18T09:15:00'},
-        {'event_type': 'NORMAL_CANCEL', 'direction': 'PENALTY', 'applied_delta': '-1.0', 'score_after': '38.5', 'reason_detail': '출발 10분 전 취소', 'created_at': '2024-12-15T16:20:00'},
-        {'event_type': 'STREAK_BONUS', 'direction': 'GAIN', 'applied_delta': '+0.5', 'score_after': '39.5', 'reason_detail': '연속 성공 보너스', 'created_at': '2024-12-10T11:00:00'},
-      ];
+      final logs = await AuthService.getTrustScoreLogs();
 
       setState(() {
         _logs = logs;
@@ -891,9 +884,15 @@ class _MannerScreenState extends State<_MannerScreen> {
     return '${date.year}.${date.month.toString().padLeft(2, '0')}.${date.day.toString().padLeft(2, '0')}';
   }
 
-  String _getEventDisplayName(String eventType) {
+  String _getEventDisplayName(String eventType, String reasonDetail) {
+    // MANUAL_ADJUST 중 정산 지연 패널티 특수 처리
+    if (eventType == 'MANUAL_ADJUST' && reasonDetail.contains('정산 지연')) {
+      return '정산 지연 패널티';
+    }
+
     final names = {
       'TRIP_LEADER_SUCCESS': '팀장 성공',
+      'TRIP_PARTICIPATION_COMPLETE': '동승 완료',
       'TRIP_PARTICIPATION_COMPLETED': '동승 완료',
       'FAST_SETTLEMENT': '빠른 정산',
       'STREAK_BONUS': '연속 보너스',
@@ -984,7 +983,10 @@ class _MannerScreenState extends State<_MannerScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _getEventDisplayName(log['event_type'] as String),
+                        _getEventDisplayName(
+                          log['event_type'] as String,
+                          log['reason_detail'] as String? ?? '',
+                        ),
                         style: const TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w700,

@@ -231,27 +231,23 @@ class AuthService {
     ];
   }
 
-  // 10. 매너 로그 데이터 반환
+  // 10. 매너 로그 데이터 반환 (실제 API 연동)
   static Future<List<Map<String, dynamic>>> getTrustScoreLogs() async {
-    await Future.delayed(const Duration(milliseconds: 800));
-    return [
-      {
-        'direction': 'GAIN',
-        'event_type': 'FAST_SETTLEMENT',
-        'created_at': '2026-04-10T19:00:00Z',
-        'applied_delta': '+0.5',
-        'reason_detail': '하차 후 10분 이내 빠른 정산 완료',
-        'score_after': '37.0',
+    final url = Uri.parse('${AppConfig.apiBaseUrl}/api/moderation/logs/');
+    final response = await http.get(
+      url,
+      headers: {
+        'Authorization': 'Token ${AuthSession.token}',
+        'Content-Type': 'application/json',
       },
-      {
-        'direction': 'PENALTY',
-        'event_type': 'NO_SHOW',
-        'created_at': '2026-04-05T22:15:00Z',
-        'applied_delta': '-2.0',
-        'reason_detail': '약속 시간 5분 경과 후 미탑승',
-        'score_after': '36.5',
-      },
-    ];
+    );
+
+    if (response.statusCode == 200) {
+      final List<dynamic> data = jsonDecode(response.body);
+      return data.map((item) => item as Map<String, dynamic>).toList();
+    } else {
+      throw Exception('매너 로그 조회 실패: ${response.statusCode}');
+    }
   }
 
   // 11. 최근 동승자 데이터 반환
