@@ -233,7 +233,7 @@ class AuthService {
 
   // 10. 매너 로그 데이터 반환 (실제 API 연동)
   static Future<List<Map<String, dynamic>>> getTrustScoreLogs() async {
-    final url = Uri.parse('${AppConfig.apiBaseUrl}/api/moderation/logs/');
+    final url = Uri.parse('${AppConfig.apiBaseUrl}/api/moderation/trust-score-logs/');
     final response = await http.get(
       url,
       headers: {
