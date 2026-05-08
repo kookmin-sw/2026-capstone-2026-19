@@ -31,7 +31,11 @@ class ChatRoomListCreateView(APIView):
             Q(trip_id__in=participant_trip_ids)
         ).distinct().order_by("-created_at")
 
-        serializer = ChatRoomSerializer(rooms, many=True)
+        serializer = ChatRoomSerializer(
+            rooms,
+            many=True,
+            context={"request": request},
+        )
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     # 채팅방 개설 (참여자 추가 로직 삭제됨)

@@ -13,8 +13,11 @@ import time
 import uuid
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
-
 from django.conf import settings
+from datetime import timedelta
+from chat.models import ChatRoom
+from asgiref.sync import async_to_sync
+from channels.layers import get_channel_layer
 
 
 def _validate_trip_leader(*, trip, user):
@@ -533,3 +536,90 @@ def dispute_settlement(*, settlement: Settlement, user):
     settlement.status = "DISPUTED"
     settlement.save(update_fields=["status"])
     return settlement
+
+
+@transaction.atomic
+def complete_trip_settlement(*, trip, user):
+    """
+    리더가 해당 trip의 정산을 최종 완료 처리한다.
+    - 모든 정산 요청을 CONFIRMED로 변경
+    - 채팅방 공지 문구를 정산 완료 문구로 변경
+    - 채팅방 만료 시간을 현재 시각 + 1시간으로 설정
+    """
+    _validate_trip_leader(trip=trip, user=user)
+
+    settlements = list(
+        Settlement.objects.filter(
+            trip=trip,
+        )
+    )
+
+    if not settlements:
+        raise ValidationError("완료 처리할 정산 요청이 없습니다.")
+
+    now = timezone.now()
+    expires_at = now + timedelta(hours=1)
+
+    for settlement in settlements:
+        settlement.status = "CONFIRMED"
+        settlement.confirmed_at = now
+        settlement.verified_by = user
+        settlement.verification_method = "MANUAL"
+        settlement.save(
+            update_fields=[
+                "status",
+                "confirmed_at",
+                "verified_by",
+                "verification_method",
+            ]
+        )
+
+    local_expires_at = timezone.localtime(expires_at)
+    period = "오전" if local_expires_at.hour < 12 else "오후"
+    hour_12 = local_expires_at.hour % 12
+    if hour_12 == 0:
+        hour_12 = 12
+
+    notice = (
+        f"정산이 완료되었습니다. "
+        f"{period} {hour_12:02d}시{local_expires_at.minute:02d}분에 "
+        f"채팅방이 자동 삭제 됩니다."
+    )
+
+    chat_room = ChatRoom.objects.filter(trip=trip).first()
+    if chat_room:
+        chat_room.pinned_notice = notice
+        chat_room.expires_at = expires_at
+        chat_room.is_archived = False
+        chat_room.save(
+            update_fields=[
+                "pinned_notice",
+                "expires_at",
+                "is_archived",
+            ]
+        )
+        channel_layer = get_channel_layer()
+        if channel_layer:
+            event = {
+                "type": "broadcast_message",
+                "message_type": "settlement_completed",
+                "message": "정산이 완료되었습니다.",
+                "pinned_notice": notice,
+                "expires_at": expires_at.isoformat(),
+            }
+
+            async_to_sync(channel_layer.group_send)(
+                f"chat_{trip.id}",
+                event,
+            )
+
+            if chat_room.id != trip.id:
+                async_to_sync(channel_layer.group_send)(
+                    f"chat_{chat_room.id}",
+                    event,
+                )
+
+    return {
+        "pinned_notice": notice,
+        "expires_at": expires_at,
+    }

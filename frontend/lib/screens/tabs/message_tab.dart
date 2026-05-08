@@ -21,6 +21,7 @@ class ChatRoomModel {
   final String time;
   final int unreadCount;
   final String pinnedNotice;
+  final bool isLeader;
 
   const ChatRoomModel({
     required this.id,
@@ -30,6 +31,7 @@ class ChatRoomModel {
     required this.time,
     required this.unreadCount,
     required this.pinnedNotice,
+    required this.isLeader,
   });
 
   factory ChatRoomModel.fromJson(Map<String, dynamic> json) {
@@ -41,6 +43,7 @@ class ChatRoomModel {
       time: _formatDate(json['created_at'] ?? ""),
       unreadCount: json['unread_count'] ?? 0,
       pinnedNotice: json['pinned_notice'] ?? "만날 위치를 공유해주세요",
+      isLeader: json['is_leader'] == true,
     );
   }
 
@@ -330,6 +333,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   bool _isSettlementProcessing = false;
   bool _showAttachPanel = false;
   bool _isNoticeExpanded = false;
+  late String _pinnedNotice;
   // 우선 주석처리
   // final ImagePicker _picker = ImagePicker();
   // bool _showAttachPanel = false;
@@ -337,9 +341,37 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   @override
   void initState() {
     super.initState();
+    _pinnedNotice = widget.room.pinnedNotice;
+    _refreshCurrentRoomInfo();
     _loadChatMessages();
     _connectWebSocket();
     _loadPendingSettlementsForThisRoom();
+  }
+
+  Future<void> _refreshCurrentRoomInfo() async {
+    try {
+      final rooms = await TripService.getChatRooms(
+        token: AuthSession.token ?? '',
+      );
+
+      final matchedRooms = rooms.where((item) {
+        final map = Map<String, dynamic>.from(item as Map);
+        return _toInt(map['id']) == widget.room.id;
+      }).toList();
+
+      if (matchedRooms.isEmpty) return;
+
+      final roomMap = Map<String, dynamic>.from(matchedRooms.first as Map);
+      final latestNotice = roomMap['pinned_notice']?.toString() ?? '';
+
+      if (!mounted || latestNotice.isEmpty) return;
+
+      setState(() {
+        _pinnedNotice = latestNotice;
+      });
+    } catch (e) {
+      print('채팅방 최신 공지 불러오기 실패: $e');
+    }
   }
 
   void _connectWebSocket() {
@@ -360,6 +392,16 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
       setState(() {
         final messageType = decoded['type']?.toString();
+
+        if (messageType == 'settlement_completed') {
+          final notice = decoded['pinned_notice']?.toString();
+
+          if (notice != null && notice.isNotEmpty) {
+            _pinnedNotice = notice;
+          }
+
+          return;
+        }
 
         if (messageType == 'settlement_request') {
           final settlementRaw = decoded['settlement'];
@@ -445,9 +487,16 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
   Future<void> _loadPendingSettlementsForThisRoom() async {
     try {
-      final settlements = await SettlementService.getMyPaySettlements(
-        token: AuthSession.token ?? '',
-      );
+      final token = AuthSession.token ?? '';
+
+      final settlements = widget.room.isLeader
+          ? await SettlementService.getTripSettlements(
+              token: token,
+              tripId: widget.room.tripId,
+            )
+          : await SettlementService.getMyPaySettlements(
+              token: token,
+            );
 
       final roomSettlements = settlements.where((item) {
         final map = Map<String, dynamic>.from(item as Map);
@@ -455,13 +504,17 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         final status = map['status']?.toString();
 
         return tripId == widget.room.tripId &&
-            ['REQUEST', 'LINK_OPENED', 'PAID_SELF'].contains(status);
+            ['REQUEST', 'LINK_OPENED', 'PAID_SELF', 'CONFIRMED'].contains(status);
       }).toList();
 
       if (!mounted || roomSettlements.isEmpty) return;
 
+      final displaySettlements = widget.room.isLeader
+          ? [roomSettlements.first]
+          : roomSettlements;
+
       setState(() {
-        for (final item in roomSettlements) {
+        for (final item in displaySettlements) {
           final map = Map<String, dynamic>.from(item as Map);
 
           _messages.add(
@@ -729,6 +782,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
   Widget _buildSettlementRequestCard(SettlementMessage settlement) {
     final isCanceled = settlement.isCanceled;
+    final isLeader = widget.room.isLeader;
+    final isCompleted = _pinnedNotice.contains('정산이 완료되었습니다');
 
     return Align(
       alignment: Alignment.centerLeft,
@@ -755,7 +810,11 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                 ),
                 const SizedBox(width: 6),
                 Text(
-                  isCanceled ? '취소된 정산 정보입니다' : '정산 요청이 도착했습니다',
+                  isCompleted
+                    ? '정산이 완료되었습니다'
+                    : isCanceled
+                        ? '취소된 정산 정보입니다'
+                        : '정산 요청이 도착했습니다',
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w800,
@@ -766,9 +825,11 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              isCanceled
-                  ? '리더가 정산 정보를 수정하여 이 정산 요청은 더 이상 사용할 수 없습니다.'
-                  : '총 결제액과 1인당 정산금액을 확인한 뒤 정산을 진행해주세요.',
+              isCompleted
+                ? '모든 인원의 정산이 완료되어 더 이상 정산을 진행할 수 없습니다.'
+                : isCanceled
+                    ? '리더가 정산 정보를 수정하여 이 정산 요청은 더 이상 사용할 수 없습니다.'
+                    : '총 결제액과 1인당 정산금액을 확인한 뒤 정산을 진행해주세요.',
               style: const TextStyle(
                 fontSize: 12,
                 color: AppColors.gray,
@@ -779,11 +840,17 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: isCanceled
+                onPressed: isCanceled || isCompleted
                     ? null
-                    : () => _showSettlementDialog(settlement),
+                    : () {
+                        if (isLeader) {
+                          _showLeaderSettlementCompleteDialog(settlement);
+                        } else {
+                          _showSettlementDialog(settlement);
+                        }
+                      },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: isCanceled
+                  backgroundColor: isCanceled || isCompleted
                       ? const Color(0xFFD6D6D6)
                       : AppColors.primary,
                   foregroundColor: Colors.white,
@@ -793,7 +860,15 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                     borderRadius: BorderRadius.circular(10),
                   ),
                 ),
-                child: Text(isCanceled ? '사용할 수 없는 정산입니다' : '정산 정보 확인하기'),
+                child: Text(
+                  isCompleted
+                    ? '정산이 완료되었습니다'
+                    : isCanceled
+                        ? '사용할 수 없는 정산입니다'
+                        : isLeader
+                            ? '정산 완료하기'
+                            : '정산 정보 확인하기',
+                ),
               ),
             ),
           ],
@@ -941,6 +1016,117 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     );
   }
 
+  void _showLeaderSettlementCompleteDialog(SettlementMessage settlement) {
+    bool isChecked = false;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
+              title: const Text(
+                '정산 완료 확인',
+                style: TextStyle(
+                  fontWeight: FontWeight.w900,
+                  color: AppColors.secondary,
+                ),
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildSettlementInfoRow('총 결제액', settlement.totalAmountText),
+                  const SizedBox(height: 8),
+                  _buildSettlementInfoRow('1인당 정산금액', settlement.shareAmountText),
+                  const SizedBox(height: 16),
+
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Checkbox(
+                        value: isChecked,
+                        onChanged: (value) {
+                          setDialogState(() {
+                            isChecked = value ?? false;
+                          });
+                        },
+                      ),
+                      const Expanded(
+                        child: Padding(
+                          padding: EdgeInsets.only(top: 12),
+                          child: Text(
+                            '모든 인원이 정산을 완료하였나요?\n체크 후 정산 완료 버튼이 활성화됩니다.',
+                            style: TextStyle(
+                              fontSize: 12,
+                              height: 1.4,
+                              color: AppColors.secondary,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('닫기'),
+                ),
+                ElevatedButton(
+                  onPressed: isChecked
+                    ? () async {
+                        Navigator.pop(dialogContext);
+
+                        try {
+                          final result = await SettlementService.completeTripSettlement(
+                            token: AuthSession.token ?? '',
+                            tripId: widget.room.tripId,
+                          );
+
+                          final notice = result['pinned_notice']?.toString()
+                              ?? '정산이 완료되었습니다.';
+
+                          if (!mounted) return;
+
+                          setState(() {
+                            _pinnedNotice = notice;
+                          });
+
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('정산이 완료되었습니다.'),
+                            ),
+                          );
+                        } catch (e) {
+                          if (!mounted) return;
+
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('정산 완료 처리 실패: $e'),
+                            ),
+                          );
+                        }
+                      }
+                    : null,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('정산 완료'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   Widget _buildSettlementInfoRow(String label, String value) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1007,9 +1193,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   }
 
   Widget _buildNoticeBar() {
-    final noticeText = widget.room.pinnedNotice.isNotEmpty
-        ? widget.room.pinnedNotice
-        : '택시 번호 및 만날 위치를 꼭 공유해주세요!';
+    final noticeText = _pinnedNotice.isNotEmpty
+      ? _pinnedNotice
+      : '택시 번호 및 만날 위치를 꼭 공유해주세요!';
 
     return Container(
       width: double.infinity,

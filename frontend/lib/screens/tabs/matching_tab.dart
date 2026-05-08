@@ -1045,6 +1045,7 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
                           time: widget.pin['time']?.toString() ?? '',
                           unreadCount: 0,
                           pinnedNotice: '택시 번호 및 만날 위치를 꼭 공유해주세요!',
+                          isLeader: false,
                         ),
                         myNickname: AuthSession.username ?? '나',
                       );

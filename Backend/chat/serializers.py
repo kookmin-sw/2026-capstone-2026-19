@@ -8,6 +8,7 @@ class ChatRoomSerializer(serializers.ModelSerializer):
     trip_title = serializers.SerializerMethodField()
     last_message = serializers.SerializerMethodField()
     unread_count = serializers.SerializerMethodField()
+    is_leader = serializers.SerializerMethodField()
 
     class Meta:
         model = ChatRoom
@@ -19,6 +20,7 @@ class ChatRoomSerializer(serializers.ModelSerializer):
             'pinned_notice',
             'created_at',
             'unread_count',
+            'is_leader',
         ]
         read_only_fields = ['id', 'created_at']
 
@@ -38,6 +40,12 @@ class ChatRoomSerializer(serializers.ModelSerializer):
 
     def get_unread_count(self, obj):
         return 0
+    
+    def get_is_leader(self, obj):
+        request = self.context.get("request")
+        if not request or not request.user or not request.user.is_authenticated:
+            return False
+        return obj.trip.leader_user_id == request.user.id
 
     def create(self, validated_data):
         trip_id = validated_data['trip_id']

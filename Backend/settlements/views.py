@@ -30,6 +30,7 @@ from .services import (
     upload_settlement_proof,
     confirm_settlement,
     dispute_settlement,
+    complete_trip_settlement,
 )
 
 
@@ -151,6 +152,26 @@ class TripSettlementCreateView(APIView):
                 context={"request": request},
             ).data,
             status=status.HTTP_201_CREATED,
+        )
+
+class TripSettlementCompleteView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, trip_id):
+        trip = get_object_or_404(Trip, id=trip_id)
+
+        result = complete_trip_settlement(
+            trip=trip,
+            user=request.user,
+        )
+
+        return Response(
+            {
+                "detail": "정산이 완료되었습니다.",
+                "pinned_notice": result["pinned_notice"],
+                "expires_at": result["expires_at"],
+            },
+            status=status.HTTP_200_OK,
         )
 
 

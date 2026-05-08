@@ -44,6 +44,66 @@ class SettlementService {
     );
   }
 
+  /// 특정 trip의 정산 목록 조회
+  /// GET /api/settlements/trips/<trip_id>/settlements/
+  static Future<List<dynamic>> getTripSettlements({
+    required String token,
+    required int tripId,
+  }) async {
+    final uri = Uri.parse(
+      '$serverUrl/api/settlements/trips/$tripId/settlements/',
+    );
+
+    final response = await http.get(
+      uri,
+      headers: _headers(token),
+    );
+
+    if (response.statusCode == 200) {
+      final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+
+      if (decoded is List) {
+        return decoded;
+      }
+
+      if (decoded is Map<String, dynamic> && decoded['results'] is List) {
+        return decoded['results'] as List<dynamic>;
+      }
+
+      return [];
+    }
+
+    throw Exception(
+      'Trip 정산 목록 조회 실패: ${response.statusCode} ${response.body}',
+    );
+  }
+
+  /// 리더가 trip 정산을 최종 완료 처리
+  /// POST /api/settlements/trips/<trip_id>/settlements/complete/
+  static Future<Map<String, dynamic>> completeTripSettlement({
+    required String token,
+    required int tripId,
+  }) async {
+    final uri = Uri.parse(
+      '$serverUrl/api/settlements/trips/$tripId/settlements/complete/',
+    );
+
+    final response = await http.post(
+      uri,
+      headers: _headers(token),
+    );
+
+    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+
+    if (response.statusCode == 200 && decoded is Map<String, dynamic>) {
+      return decoded;
+    }
+
+    throw Exception(
+      'Trip 정산 완료 처리 실패: ${response.statusCode} ${response.body}',
+    );
+  }
+
   /// 정산 상세 조회
   /// GET /api/settlements/settlements/<settlement_id>/
   static Future<Map<String, dynamic>> getSettlementDetail({

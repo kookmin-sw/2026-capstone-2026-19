@@ -117,6 +117,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
                     "message_id": event.get("message_id"),
                     "sent_at": event.get("sent_at"),
                     "settlement": event.get("settlement"),
+                    "pinned_notice": event.get("pinned_notice"),
+                    "expires_at": event.get("expires_at"),
                 },
                 ensure_ascii=False,
             )
