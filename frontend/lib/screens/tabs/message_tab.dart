@@ -1447,14 +1447,36 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
                         borderRadius: BorderRadius.circular(22),
                         border: Border.all(color: AppColors.border),
                       ),
-                      child: TextField(
-                        controller: _inputCtrl,
-                        decoration: const InputDecoration(
-                          hintText: '메시지 입력...',
-                          border: InputBorder.none,
-                          isDense: true,
+                      child: Center(
+                        child: TextField(
+                          controller: _inputCtrl,
+                          maxLines: 1,
+                          cursorHeight: 18,
+                          textAlignVertical: TextAlignVertical.center,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            height: 1.2,
+                            color: AppColors.secondary,
+                          ),
+                          strutStyle: const StrutStyle(
+                            fontSize: 14,
+                            height: 1.2,
+                            forceStrutHeight: true,
+                          ),
+                          decoration: const InputDecoration(
+                            hintText: '메시지 입력...',
+                            hintStyle: TextStyle(
+                              fontSize: 14,
+                              height: 1.2,
+                              color: Color(0xFF9CA3AF),
+                            ),
+                            border: InputBorder.none,
+                            isDense: true,
+                            isCollapsed: true,
+                            contentPadding: EdgeInsets.zero,
+                          ),
+                          onSubmitted: (_) => _sendMessage(),
                         ),
-                        onSubmitted: (_) => _sendMessage(),
                       ),
                     ),
                   ),
