@@ -474,14 +474,33 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
     final streamedResponse = await request.send();
     final response = await http.Response.fromStream(streamedResponse);
-    final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    final bodyText = utf8.decode(response.bodyBytes);
+    final contentType = response.headers['content-type'] ?? '';
 
-    if (response.statusCode == 201 && decoded is Map<String, dynamic>) {
-      return decoded;
+    print('CHAT IMAGE UPLOAD STATUS: ${response.statusCode}');
+    print('CHAT IMAGE UPLOAD CONTENT-TYPE: $contentType');
+    print('CHAT IMAGE UPLOAD BODY: $bodyText');
+
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      if (bodyText.trim().isEmpty) {
+        return <String, dynamic>{};
+      }
+
+      if (contentType.contains('application/json')) {
+        final decoded = jsonDecode(bodyText);
+
+        if (decoded is Map<String, dynamic>) {
+          return decoded;
+        }
+
+        return <String, dynamic>{};
+      }
+
+      return <String, dynamic>{};
     }
 
     throw Exception(
-      '이미지 메시지 업로드 실패: ${response.statusCode} ${response.body}',
+      '이미지 메시지 업로드 실패: ${response.statusCode} $bodyText',
     );
   }
 

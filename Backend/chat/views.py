@@ -10,6 +10,9 @@ from trips.models import Trip, TripParticipant
 from rest_framework.parsers import MultiPartParser, FormParser
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 
@@ -166,19 +169,21 @@ class ChatImageMessageCreateView(APIView):
                 "sender": user.username,
                 "sender_user_id": user.id,
                 "message_id": data.get("id"),
-                "sent_at": data.get("sent_at"),
+                "sent_at": str(data.get("sent_at")) if data.get("sent_at") else None,
                 "image_url": data.get("image_url"),
             }
 
-            async_to_sync(channel_layer.group_send)(
-                f"chat_{room.id}",
-                event,
-            )
-
-            if room.trip_id != room.id:
+            try:
                 async_to_sync(channel_layer.group_send)(
-                    f"chat_{room.trip_id}",
+                    f"chat_{room.id}",
                     event,
+                )
+            except Exception:
+                logger.exception(
+                    "Chat image broadcast failed. room_id=%s, trip_id=%s, message_id=%s",
+                    room.id,
+                    room.trip_id,
+                    data.get("id"),
                 )
 
         return Response(data, status=status.HTTP_201_CREATED)
