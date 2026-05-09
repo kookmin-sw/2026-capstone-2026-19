@@ -173,6 +173,9 @@ MEDIA_ROOT = BASE_DIR / "media"
 
 AZURE_STORAGE_CONNECTION_STRING = os.getenv("AZURE_STORAGE_CONNECTION_STRING", "")
 AZURE_STORAGE_CONTAINER_NAME = os.getenv("AZURE_STORAGE_CONTAINER_NAME", "receipt-images")
+AZURE_STORAGE_URL_EXPIRATION_SECS = int(
+    os.getenv("AZURE_STORAGE_URL_EXPIRATION_SECS", "3600")
+)
 
 if AZURE_STORAGE_CONNECTION_STRING:
     STORAGES = {
@@ -182,12 +185,14 @@ if AZURE_STORAGE_CONNECTION_STRING:
                 "connection_string": AZURE_STORAGE_CONNECTION_STRING,
                 "azure_container": AZURE_STORAGE_CONTAINER_NAME,
                 "overwrite_files": False,
+                "expiration_secs": AZURE_STORAGE_URL_EXPIRATION_SECS,
             },
         },
         "staticfiles": {
             "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
         },
     }
+
 CLOVA_OCR_URL = os.getenv("CLOVA_OCR_URL", "")
 CLOVA_OCR_SECRET = os.getenv("CLOVA_OCR_SECRET", "")
 AUTH_USER_MODEL = "accounts.User"
