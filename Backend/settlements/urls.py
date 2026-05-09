@@ -8,6 +8,7 @@ from .views import (
     ReceiptAnalyzeOCRView,
     ReceiptConfirmAmountView,
     TripSettlementCreateView,
+    TripSettlementCompleteView,
     TripSettlementListView,
     MyPaySettlementListView,
     MyReceiveSettlementListView,
@@ -30,6 +31,7 @@ urlpatterns = [
 
     path("trips/<int:trip_id>/settlements/create/", TripSettlementCreateView.as_view(), name="trip-settlement-create"),
     path("trips/<int:trip_id>/settlements/", TripSettlementListView.as_view(), name="trip-settlement-list"),
+    path("trips/<int:trip_id>/settlements/complete/", TripSettlementCompleteView.as_view(), name="trip-settlement-complete"),
 
     path("me/settlements/pay/", MyPaySettlementListView.as_view(), name="my-pay-settlement-list"),
     path("me/settlements/receive/", MyReceiveSettlementListView.as_view(), name="my-receive-settlement-list"),

@@ -3,9 +3,14 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from django.db.models import Q
-from .models import ChatRoom
-from .serializers import ChatRoomSerializer
+from django.utils import timezone
+from .models import ChatRoom, ChatMessage
+from .serializers import ChatRoomSerializer, ChatMessageSerializer
 from trips.models import Trip, TripParticipant
+from rest_framework.parsers import MultiPartParser, FormParser
+from asgiref.sync import async_to_sync
+from channels.layers import get_channel_layer
+
 
 
 class ChatRoomListCreateView(APIView):
@@ -26,12 +31,26 @@ class ChatRoomListCreateView(APIView):
             status="JOINED",
         ).values_list("trip_id", flat=True)
 
+        # 만료된 채팅방은 목록 조회 시 아카이브 처리
+        now = timezone.now()
+
+        ChatRoom.objects.filter(
+            is_archived=False,
+            expires_at__isnull=False,
+            expires_at__lte=now,
+        ).update(is_archived=True)
+
         rooms = ChatRoom.objects.filter(
             Q(trip_id__in=leader_trip_ids) |
-            Q(trip_id__in=participant_trip_ids)
+            Q(trip_id__in=participant_trip_ids),
+            is_archived=False,
         ).distinct().order_by("-created_at")
 
-        serializer = ChatRoomSerializer(rooms, many=True)
+        serializer = ChatRoomSerializer(
+            rooms,
+            many=True,
+            context={"request": request},
+        )
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     # 채팅방 개설 (참여자 추가 로직 삭제됨)
@@ -49,3 +68,117 @@ class ChatRoomCreateView(APIView):
             {"message": "Chat room create endpoint is temporarily available."},
             status=status.HTTP_201_CREATED,
         )
+
+class ChatRoomMessageListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, room_id):
+        user = request.user
+
+        try:
+            room = ChatRoom.objects.select_related("trip").get(id=room_id)
+        except ChatRoom.DoesNotExist:
+            return Response(
+                {"detail": "채팅방을 찾을 수 없습니다."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        is_leader = room.trip.leader_user_id == user.id
+        is_participant = TripParticipant.objects.filter(
+            trip=room.trip,
+            user=user,
+            status="JOINED",
+        ).exists()
+
+        if not is_leader and not is_participant:
+            return Response(
+                {"detail": "이 채팅방의 메시지를 조회할 권한이 없습니다."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        messages = ChatMessage.objects.filter(
+            room=room,
+        ).select_related("sender_user").order_by("sent_at")
+
+        serializer = ChatMessageSerializer(
+            messages,
+            many=True,
+            context={"request": request},
+        )
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    
+    
+class ChatImageMessageCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = (MultiPartParser, FormParser)
+
+    def post(self, request, room_id):
+        user = request.user
+
+        try:
+            room = ChatRoom.objects.select_related("trip").get(id=room_id)
+        except ChatRoom.DoesNotExist:
+            return Response(
+                {"detail": "채팅방을 찾을 수 없습니다."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        is_leader = room.trip.leader_user_id == user.id
+        is_participant = TripParticipant.objects.filter(
+            trip=room.trip,
+            user=user,
+            status="JOINED",
+        ).exists()
+
+        if not is_leader and not is_participant:
+            return Response(
+                {"detail": "이 채팅방에 이미지를 보낼 권한이 없습니다."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        image = request.FILES.get("image")
+        if not image:
+            return Response(
+                {"detail": "image 파일이 필요합니다."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        chat_message = ChatMessage.objects.create(
+            room=room,
+            sender_user=user,
+            message="",
+            message_type="IMAGE",
+            image=image,
+        )
+
+        serializer = ChatMessageSerializer(
+            chat_message,
+            context={"request": request},
+        )
+        data = serializer.data
+
+        channel_layer = get_channel_layer()
+        if channel_layer:
+            event = {
+                "type": "broadcast_message",
+                "message_type": "image_message",
+                "message": "",
+                "sender": user.username,
+                "sender_user_id": user.id,
+                "message_id": data.get("id"),
+                "sent_at": data.get("sent_at"),
+                "image_url": data.get("image_url"),
+            }
+
+            async_to_sync(channel_layer.group_send)(
+                f"chat_{room.id}",
+                event,
+            )
+
+            if room.trip_id != room.id:
+                async_to_sync(channel_layer.group_send)(
+                    f"chat_{room.trip_id}",
+                    event,
+                )
+
+        return Response(data, status=status.HTTP_201_CREATED)
