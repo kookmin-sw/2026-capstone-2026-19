@@ -398,6 +398,9 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
       if (!mounted) return;
 
+      final shouldAutoScroll =
+        decoded['sender'] == widget.myNickname || _isNearBottom();
+
       setState(() {
         final messageType = decoded['type']?.toString();
 
@@ -457,7 +460,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         }
       });
 
-      _scrollToBottom();
+      _scrollToBottomAfterLayout(force: shouldAutoScroll);
     });
   }
 
@@ -584,7 +587,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         _messages.insertAll(0, loadedMessages);
       });
 
-      _scrollToBottom();
+      _scrollToBottomAfterLayout(jump: true, force: true);
     } catch (e) {
       print('기존 채팅 메시지 불러오기 오류: $e');
     }
@@ -636,7 +639,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         }
       });
 
-      _scrollToBottom();
+      _scrollToBottomAfterLayout(force: false);
     } catch (e) {
       print('정산 요청 목록 불러오기 실패: $e');
     }
@@ -667,13 +670,48 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   // --- 기존 UI 빌더 (_buildChatHeader, _buildInputBar 등) 생략 없이 그대로 유지하여 사용하시면 됩니다 ---
   // (코드 중복 방지를 위해 주요 로직 위주로 재구성하였습니다.)
 
-  void _scrollToBottom() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollCtrl.hasClients) {
-        _scrollCtrl.animateTo(_scrollCtrl.position.maxScrollExtent, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
-      }
-    });
-  }
+bool _isNearBottom({double threshold = 120}) {
+  if (!_scrollCtrl.hasClients) return true;
+
+  final position = _scrollCtrl.position;
+  final distanceFromBottom = position.maxScrollExtent - position.pixels;
+
+  return distanceFromBottom <= threshold;
+}
+
+void _scrollToBottom({bool jump = false, bool force = false}) {
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (!mounted || !_scrollCtrl.hasClients) return;
+
+    if (!force && !_isNearBottom()) return;
+
+    final target = _scrollCtrl.position.maxScrollExtent;
+
+    if (jump) {
+      _scrollCtrl.jumpTo(target);
+    } else {
+      _scrollCtrl.animateTo(
+        target,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+      );
+    }
+  });
+}
+
+void _scrollToBottomAfterLayout({bool jump = false, bool force = false}) {
+  _scrollToBottom(jump: jump, force: force);
+
+  Future.delayed(const Duration(milliseconds: 120), () {
+    if (!mounted) return;
+    _scrollToBottom(jump: jump, force: force);
+  });
+
+  Future.delayed(const Duration(milliseconds: 300), () {
+    if (!mounted) return;
+    _scrollToBottom(jump: jump, force: force);
+  });
+}
 
   @override
   Widget build(BuildContext context) {
@@ -761,11 +799,19 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             ),
 
           Expanded(
-            child: ListView.builder(
-              controller: _scrollCtrl,
-              padding: const EdgeInsets.fromLTRB(14, 16, 14, 14),
-              itemCount: _chatMessages.length,
-              itemBuilder: (_, i) => _buildMessageBubble(_chatMessages[i]),
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onPanDown: (_) {
+                FocusScope.of(context).unfocus();
+              },
+              child: ListView.builder(
+                controller: _scrollCtrl,
+                keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(14, 16, 14, 14),
+                itemCount: _chatMessages.length,
+                itemBuilder: (_, i) => _buildMessageBubble(_chatMessages[i]),
+              ),
             ),
           ),
           _buildInputBar(),
