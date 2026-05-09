@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 import os
+from urllib.parse import quote
 from dotenv import load_dotenv
 from pathlib import Path
 
@@ -92,11 +93,27 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 ASGI_APPLICATION = "config.asgi.application"
+REDIS_HOST = os.getenv("REDIS_HOST", "redis")
+REDIS_PORT = os.getenv("REDIS_PORT", "6379")
+REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "")
+REDIS_SSL = os.getenv("REDIS_SSL", "False").lower() == "true"
+REDIS_DB = os.getenv("REDIS_DB", "0")
+
+REDIS_SCHEME = "rediss" if REDIS_SSL else "redis"
+
+if REDIS_PASSWORD:
+    REDIS_URL = (
+        f"{REDIS_SCHEME}://:{quote(REDIS_PASSWORD, safe='')}"
+        f"@{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}"
+    )
+else:
+    REDIS_URL = f"{REDIS_SCHEME}://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}"
+
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [(os.getenv("REDIS_HOST", "redis"), 6379)], # 'redis' 서비스 이름 사용
+            "hosts": [REDIS_URL],
         },
     },
 }
