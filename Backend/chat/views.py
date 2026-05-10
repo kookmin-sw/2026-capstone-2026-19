@@ -106,13 +106,19 @@ class ChatRoomParticipantsView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
+        leader_participant = TripParticipant.objects.filter(
+            trip=trip,
+            user=trip.leader_user,
+            status=TripParticipant.StatusChoices.JOINED,
+        ).first()
+
         participants = [
             {
                 "user_id": trip.leader_user.id,
                 "username": trip.leader_user.username,
                 "role": "LEADER",
                 "status": "JOINED",
-                "seat_position": None,
+                "seat_position": leader_participant.seat_position if leader_participant else None,
             }
         ]
 

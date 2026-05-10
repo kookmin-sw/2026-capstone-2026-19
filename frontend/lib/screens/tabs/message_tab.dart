@@ -409,7 +409,17 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
           if (notice != null && notice.isNotEmpty) {
             _pinnedNotice = notice;
+          } else {
+            _pinnedNotice = '정산이 완료되었습니다.';
           }
+
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            _refreshCurrentRoomInfo();
+            _loadPendingSettlementsForThisRoom();
+            TripService.notifyTripsChanged();
+            TripService.notifyChatRoomsChanged();
+          });
 
           return;
         }
