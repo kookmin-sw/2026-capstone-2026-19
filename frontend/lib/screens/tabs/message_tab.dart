@@ -1447,6 +1447,251 @@ void _scrollToBottomAfterLayout({bool jump = false, bool force = false}) {
       ),
     );
   }
+  
+  String _seatLabel(String? seatPosition) {
+    switch (seatPosition) {
+      case 'FRONT_PASSENGER':
+        return '앞좌석';
+      case 'REAR_LEFT':
+        return '뒷좌석 왼쪽';
+      case 'REAR_RIGHT':
+        return '뒷좌석 오른쪽';
+      case 'REAR_MIDDLE':
+        return '뒷좌석 가운데';
+      default:
+        return '-';
+    }
+  }
+
+  String _roleLabel(String role) {
+    return role == 'LEADER' ? '리더' : '참여자';
+  }
+
+  Future<void> _showParticipantsDialog() async {
+    try {
+      final response = await http.get(
+        Uri.parse(
+          '${AppConfig.apiBaseUrl}/chat/rooms/${widget.room.id}/participants/',
+        ),
+        headers: {
+          'Authorization': 'Token ${AuthSession.token ?? ''}',
+        },
+      );
+
+      final bodyText = utf8.decode(response.bodyBytes);
+
+      if (response.statusCode != 200) {
+        String message = '참여자 목록을 불러오지 못했습니다.';
+
+        try {
+          final decodedError = jsonDecode(bodyText);
+          if (decodedError is Map && decodedError['detail'] != null) {
+            message = decodedError['detail'].toString();
+          }
+        } catch (_) {}
+
+        throw Exception(message);
+      }
+
+      final decoded = jsonDecode(bodyText);
+
+      if (decoded is! Map || decoded['participants'] is! List) {
+        throw Exception('참여자 목록 응답 형식이 올바르지 않습니다.');
+      }
+
+      final participants = List<Map<String, dynamic>>.from(
+        (decoded['participants'] as List).map(
+          (item) => Map<String, dynamic>.from(item as Map),
+        ),
+      );
+
+      if (!mounted) return;
+
+      showModalBottomSheet(
+        context: context,
+        backgroundColor: Colors.transparent,
+        builder: (_) {
+          return SafeArea(
+            child: Container(
+              margin: const EdgeInsets.all(16),
+              padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '참여자 목록',
+                    style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w900,
+                      color: AppColors.secondary,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  ...participants.map((participant) {
+                    final username = participant['username']?.toString() ?? '';
+                    final role = participant['role']?.toString() ?? 'MEMBER';
+                    final seatPosition =
+                        participant['seat_position']?.toString();
+
+                    final isLeader = role == 'LEADER';
+
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF9F8F6),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            isLeader
+                                ? Icons.verified_user_outlined
+                                : Icons.person_outline,
+                            color: isLeader
+                                ? AppColors.primary
+                                : AppColors.gray,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  username,
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w800,
+                                    color: AppColors.secondary,
+                                  ),
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  '${_roleLabel(role)} · 좌석: ${_seatLabel(seatPosition)}',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.gray,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+
+                  SizedBox(
+                    width: double.infinity,
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('닫기'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            e.toString().replaceFirst('Exception: ', ''),
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _leaveChatRoom() async {
+    final shouldLeave = await showDialog<bool>(
+      context: context,
+      builder: (_) {
+        return AlertDialog(
+          title: const Text('채팅방 나가기'),
+          content: const Text(
+            '채팅방을 나가면 해당 매칭에서도 나가게 됩니다. 정말 나가시겠습니까?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('취소'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text(
+                '나가기',
+                style: TextStyle(color: Colors.redAccent),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldLeave != true) return;
+
+    try {
+      final response = await http.post(
+        Uri.parse(
+          '${AppConfig.apiBaseUrl}/chat/rooms/${widget.room.id}/leave/',
+        ),
+        headers: {
+          'Authorization': 'Token ${AuthSession.token ?? ''}',
+        },
+      );
+
+      final bodyText = utf8.decode(response.bodyBytes);
+
+      if (response.statusCode != 200) {
+        String message = '채팅방을 나가지 못했습니다.';
+
+        try {
+          final decodedError = jsonDecode(bodyText);
+          if (decodedError is Map && decodedError['detail'] != null) {
+            message = decodedError['detail'].toString();
+          }
+        } catch (_) {}
+
+        throw Exception(message);
+      }
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('채팅방과 매칭에서 나갔습니다.'),
+        ),
+      );
+
+      TripService.notifyTripsChanged();
+      TripService.notifyChatRoomsChanged();
+
+      Navigator.pop(context);
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            e.toString().replaceFirst('Exception: ', ''),
+          ),
+        ),
+      );
+    }
+  }
 
   void _showMoreMenu() {
     showModalBottomSheet(
@@ -1478,6 +1723,7 @@ void _scrollToBottomAfterLayout({bool jump = false, bool force = false}) {
                   title: '참여자 목록',
                   onTap: () {
                     Navigator.pop(context);
+                    _showParticipantsDialog();
                   },
                 ),
                 const Divider(height: 18),
@@ -1487,6 +1733,7 @@ void _scrollToBottomAfterLayout({bool jump = false, bool force = false}) {
                   color: Colors.redAccent,
                   onTap: () {
                     Navigator.pop(context);
+                    _leaveChatRoom();
                   },
                 ),
               ],
