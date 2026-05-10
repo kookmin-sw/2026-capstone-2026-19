@@ -94,6 +94,8 @@ class TripParticipant(models.Model):
     seat_position = models.CharField(
         max_length=30,
         choices=SeatChoices.choices,
+        blank=True,
+        null=True,
     )
     confirmed_departure = models.BooleanField(default=False)
     joined_at = models.DateTimeField(auto_now_add=True)
@@ -107,7 +109,8 @@ class TripParticipant(models.Model):
             ),
             models.UniqueConstraint(
                 fields=["trip", "seat_position"],
-                name="unique_trip_seat_position",
+                condition=Q(status="JOINED", seat_position__isnull=False),
+                name="unique_joined_trip_seat_position",
             ),
         ]
 

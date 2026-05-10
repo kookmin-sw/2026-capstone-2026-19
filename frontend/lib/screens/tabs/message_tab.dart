@@ -773,10 +773,6 @@ void _scrollToBottomAfterLayout({bool jump = false, bool force = false}) {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.search, color: AppColors.secondary),
-            onPressed: () {},
-          ),
-          IconButton(
             icon: const Icon(Icons.more_vert, color: AppColors.secondary),
             onPressed: _showMoreMenu,
           ),
@@ -1476,22 +1472,6 @@ void _scrollToBottomAfterLayout({bool jump = false, bool force = false}) {
                     color: const Color(0xFFDADADA),
                     borderRadius: BorderRadius.circular(99),
                   ),
-                ),
-                _buildMoreMenuItem(
-                  icon: Icons.notifications,
-                  title: '채팅 알림',
-                  trailing: Switch(
-                    value: true,
-                    activeColor: AppColors.primary,
-                    onChanged: (_) {},
-                  ),
-                ),
-                _buildMoreMenuItem(
-                  icon: Icons.search,
-                  title: '채팅방 검색',
-                  onTap: () {
-                    Navigator.pop(context);
-                  },
                 ),
                 _buildMoreMenuItem(
                   icon: Icons.group_add_outlined,
