@@ -131,7 +131,8 @@
 
 
 ## 🌐 시스템 아키텍쳐
-이미지 삽입 예정
+![시스템 아키텍쳐 이미지](https://raw.githubusercontent.com/kookmin-sw/2026-capstone-19/master/System%20Architecture.jpeg)
+
 
 
 <br><br>
