@@ -550,6 +550,11 @@ class _MatchingTabState extends State<MatchingTab> with SingleTickerProviderStat
       _showSnackBar('본인의 좌석을 선택해주세요.', AppColors.red);
       return;
     }
+    final kakaoLink = _kakaoCtrl.text.trim();
+    if (kakaoLink.isEmpty || !kakaoLink.startsWith('http')) {
+      _showSnackBar('유효한 카카오페이 링크를 입력해주세요. (http로 시작)', AppColors.red);
+      return;
+    }
 
     setState(() => _isLoading = true);
 
@@ -570,7 +575,7 @@ class _MatchingTabState extends State<MatchingTab> with SingleTickerProviderStat
       departTime: departDateTime,
       capacity: _maxPeople,
       seatPosition: _selectedSeat!,
-      kakaoLink: _kakaoCtrl.text,
+      kakaoLink: kakaoLink,
     );
 
     if (!mounted) return;

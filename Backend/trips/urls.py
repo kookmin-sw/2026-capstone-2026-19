@@ -4,7 +4,8 @@ from .views import (
     TripCreateListView,
     TripJoinView,
     MyTripListView,          # 📍 추가됨 (내 내역)
-    TripStatusUpdateView     # 📍 추가됨 (상태 변경 및 삭제)
+    TripStatusUpdateView,    # 📍 추가됨 (상태 변경 및 삭제)
+    TripLeaveView,
 )
 
 urlpatterns = [
@@ -17,6 +18,9 @@ urlpatterns = [
 
     # 특정 핀 참여 ( POST /api/trips/<pk>/join/ )
     path('<int:pk>/join/', TripJoinView.as_view(), name='trip-join'),
+
+    # 참여 취소 (POST /api/trips/<pk>/leave/)
+    path('<int:pk>/leave/', TripLeaveView.as_view(), name='trip-leave'),
 
     # 📍 상태 변경 및 핀 삭제 ( PATCH/DELETE /api/trips/<pk>/ )
     path('<int:pk>/', TripStatusUpdateView.as_view(), name='trip-status-update'),
