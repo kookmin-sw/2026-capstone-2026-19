@@ -127,25 +127,37 @@ class _MyPageTabState extends State<MyPageTab> {
   }
 
   Future<void> _pickImage(ImageSource source) async {
-    try {
-      final XFile? picked = await _picker.pickImage(
-        source: source,
-        imageQuality: 80,
-        maxWidth: 512,
-        maxHeight: 512,
-      );
-      if (picked != null) {
-        setState(() => _profileImage = File(picked.path));
+      try {
+        final XFile? picked = await _picker.pickImage(
+          source: source, imageQuality: 80, maxWidth: 512, maxHeight: 512,
+        );
+        if (picked != null) {
+          setState(() => _profileImage = File(picked.path));
 
-        try {
-          // AuthService 호출 대신 딜레이로 업로드 효과 시뮬레이션
-          await Future.delayed(const Duration(milliseconds: 600));
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('프로필 사진이 업데이트되었습니다.')),
-            );
+          try {
+            // 🟢 진짜 프로필 사진 업로드 API 호출!
+            final result = await AuthService.updateProfileImage(File(picked.path));
+
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(result['message'])),
+              );
+              // 업로드 성공 후 프로필 정보를 다시 불러와서 화면 새로고침
+              if (result['success']) {
+                setState(() {
+                  _profileFuture = AuthService.getProfile();
+                });
+              }
+            }
+          } catch (e) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('프로필 업데이트 실패: $e')),
+              );
+            }
           }
-        } catch (e) {
+        }
+      } catch (e) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text('프로필 업데이트 실패: $e')),
@@ -353,18 +365,19 @@ class _MyPageTabState extends State<MyPageTab> {
         ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.red, foregroundColor: Colors.white, elevation: 0),
             onPressed: () async {
-              Navigator.pop(context);
-              try {
-                // AuthService 호출 대신 딜레이로 로그아웃 효과 시뮬레이션
-                await Future.delayed(const Duration(milliseconds: 500));
-                if (context.mounted) {
-                  Navigator.pushAndRemoveUntil(
-                    context,
-                    MaterialPageRoute(builder: (_) => const LoginScreen()),
-                    (route) => false,
-                  );
-                }
-              } catch (e) {
+                          Navigator.pop(context);
+                          try {
+                            // 🟢 진짜 로그아웃 API 호출!
+                            await AuthService.logout();
+
+                            if (context.mounted) {
+                              Navigator.pushAndRemoveUntil(
+                                context,
+                                MaterialPageRoute(builder: (_) => const LoginScreen()),
+                                (route) => false,
+                              );
+                            }
+                          } catch (e) {
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('로그아웃 실패: $e')),
@@ -669,33 +682,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.red, foregroundColor: Colors.white, elevation: 0),
             onPressed: () async {
-              Navigator.pop(context);
-              try {
-                // 더미 결과 처리
-                await Future.delayed(const Duration(milliseconds: 800));
-                final result = {'success': true, 'is_blocked': true, 'message': '탈퇴가 완료되었습니다.'};
+                          Navigator.pop(context);
+                          try {
+                            // 🟢 진짜 탈퇴 API 호출!
+                            final result = await AuthService.withdraw(reason: '사용자 자진 탈퇴'); // 임의 사유
 
-                if (context.mounted) {
-                  if (result['is_blocked'] == true) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('1년간 재가입이 제한됩니다'),
-                        backgroundColor: AppColors.red,
-                      ),
-                    );
-                  } else {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(result['message'] as String? ?? '탈퇴가 완료되었습니다.')),
-                    );
-                  }
+                            if (context.mounted) {
+                              if (result['is_blocked'] == true) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('1년간 재가입이 제한됩니다'),
+                                    backgroundColor: AppColors.red,
+                                  ),
+                                );
+                              } else {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text(result['message'] as String? ?? '탈퇴가 완료되었습니다.')),
+                                );
+                              }
 
-                  Navigator.pushAndRemoveUntil(
-                    context,
-                    MaterialPageRoute(builder: (_) => const LoginScreen()),
-                    (route) => false,
-                  );
-                }
-              } catch (e) {
+                              Navigator.pushAndRemoveUntil(
+                                context,
+                                MaterialPageRoute(builder: (_) => const LoginScreen()),
+                                (route) => false,
+                              );
+                            }
+                          } catch (e) {
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('탈퇴 처리 중 오류가 발생했습니다: $e')),
@@ -1112,37 +1124,40 @@ class _ReportScreenState extends State<_ReportScreen> {
   }
 
   Future<void> _fetchRecentCompanions() async {
-    try {
-      // 더미 데이터
-      await Future.delayed(const Duration(milliseconds: 800));
-      final companions = [
-        {'id': 'user_001', 'nickname': '@taxi_kim', 'ride_date': '오늘 14:30', 'route': '강남역 → 김포공항'},
-        {'id': 'user_002', 'nickname': '@seoul_lee', 'ride_date': '어제 15:00', 'route': '홍대입구역 → 인천공항 T1'},
-        {'id': 'user_003', 'nickname': '@rider_park', 'ride_date': '3일 전 14:45', 'route': '잠실역 → 강남역'},
-        {'id': 'user_004', 'nickname': '@go_choi', 'ride_date': '1주일 전 16:00', 'route': '신촌역 → 판교역'},
-      ];
+      try {
+        // 🟢 진짜 동승자 내역 API 호출!
+        final companions = await AuthService.getRecentCompanions();
 
-      setState(() {
-        _recentPassengers = companions.map((c) => _RecentPassenger(
-          id: c['id'] ?? '',
-          nickname: c['nickname'] ?? '',
-          rideDate: c['ride_date'] ?? '',
-          route: c['route'] ?? '',
-        )).toList();
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _error = '동승자 목록을 불러오는데 실패했습니다: $e';
-        _isLoading = false;
-      });
+        setState(() {
+          _recentPassengers = companions.map((c) => _RecentPassenger(
+            id: c['id']?.toString() ?? '',
+            nickname: c['nickname']?.toString() ?? '(알 수 없음)',
+            rideDate: c['ride_date']?.toString() ?? '',
+            route: c['route']?.toString() ?? '',
+          )).toList();
+          _isLoading = false;
+        });
+      } catch (e) {
+        setState(() {
+          _error = '동승자 목록을 불러오는데 실패했습니다: $e';
+          _isLoading = false;
+        });
+      }
     }
-  }
 
   Future<void> _submitReport(String reportedUserId, String tripId) async {
-    // API 호출 대신 딜레이
-    await Future.delayed(const Duration(seconds: 1));
-  }
+      // 🟢 진짜 유저 신고 API 호출!
+      final result = await AuthService.reportUser(
+        targetId: reportedUserId,
+        tripId: tripId, // 현재 UI에는 tripId가 안 넘어오고 있으니 UI수정이 조금 필요할 수 있습니다.
+        reason: _selectedReason,
+        detail: _detailController.text,
+      );
+
+      if (!result['success']) {
+        throw Exception(result['message']);
+      }
+    }
 
   void _showReportBottomSheet(_RecentPassenger passenger) {
     _selectedReason = '노쇼';

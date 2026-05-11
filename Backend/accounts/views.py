@@ -327,3 +327,19 @@ class UserProfileView(APIView):
                 'profile_img_url': user.profile_img_url.url if user.profile_img_url else None,
             }
         }, status=status.HTTP_200_OK)
+class LogoutView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        try:
+            # 현재 로그인된 유저의 토큰을 삭제하여 무효화
+            request.user.auth_token.delete()
+            return Response(
+                {"success": True, "message": "성공적으로 로그아웃 되었습니다."},
+                status=status.HTTP_200_OK
+            )
+        except Exception as e:
+            return Response(
+                {"success": False, "message": "로그아웃 처리 중 오류가 발생했습니다."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
