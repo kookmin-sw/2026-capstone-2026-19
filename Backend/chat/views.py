@@ -10,6 +10,11 @@ from trips.models import Trip, TripParticipant
 from rest_framework.parsers import MultiPartParser, FormParser
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
+import logging
+from django.db import transaction
+from settlements.models import Settlement
+
+logger = logging.getLogger(__name__)
 
 
 
@@ -67,6 +72,152 @@ class ChatRoomCreateView(APIView):
         return Response(
             {"message": "Chat room create endpoint is temporarily available."},
             status=status.HTTP_201_CREATED,
+        )
+        
+class ChatRoomParticipantsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, room_id):
+        user = request.user
+
+        try:
+            room = ChatRoom.objects.select_related(
+                "trip",
+                "trip__leader_user",
+            ).get(id=room_id)
+        except ChatRoom.DoesNotExist:
+            return Response(
+                {"detail": "채팅방을 찾을 수 없습니다."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        trip = room.trip
+
+        is_leader = trip.leader_user_id == user.id
+        is_participant = TripParticipant.objects.filter(
+            trip=trip,
+            user=user,
+            status=TripParticipant.StatusChoices.JOINED,
+        ).exists()
+
+        if not is_leader and not is_participant:
+            return Response(
+                {"detail": "이 채팅방의 참여자 목록을 조회할 권한이 없습니다."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        leader_participant = TripParticipant.objects.filter(
+            trip=trip,
+            user=trip.leader_user,
+            status=TripParticipant.StatusChoices.JOINED,
+        ).first()
+
+        participants = [
+            {
+                "user_id": trip.leader_user.id,
+                "username": trip.leader_user.username,
+                "role": "LEADER",
+                "status": "JOINED",
+                "seat_position": leader_participant.seat_position if leader_participant else None,
+            }
+        ]
+
+        joined_members = (
+            TripParticipant.objects
+            .filter(
+                trip=trip,
+                status=TripParticipant.StatusChoices.JOINED,
+            )
+            .select_related("user")
+            .exclude(user_id=trip.leader_user_id)
+            .order_by("joined_at")
+        )
+
+        for participant in joined_members:
+            participants.append(
+                {
+                    "user_id": participant.user.id,
+                    "username": participant.user.username,
+                    "role": participant.role,
+                    "status": participant.status,
+                    "seat_position": participant.seat_position,
+                }
+            )
+
+        return Response(
+            {
+                "room_id": room.id,
+                "trip_id": trip.id,
+                "participants": participants,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+class ChatRoomLeaveView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, room_id):
+        user = request.user
+
+        try:
+            room = ChatRoom.objects.select_related("trip").get(id=room_id)
+        except ChatRoom.DoesNotExist:
+            return Response(
+                {"detail": "채팅방을 찾을 수 없습니다."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        trip = room.trip
+
+        if trip.leader_user_id == user.id:
+            return Response(
+                {"detail": "리더는 채팅방을 나갈 수 없습니다. 모집 완료 또는 핀 삭제 기능을 이용해주세요."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if Settlement.objects.filter(trip=trip).exists():
+            return Response(
+                {"detail": "정산이 생성된 이후에는 채팅방을 나갈 수 없습니다."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        try:
+            participant = TripParticipant.objects.get(
+                trip=trip,
+                user=user,
+                status=TripParticipant.StatusChoices.JOINED,
+            )
+        except TripParticipant.DoesNotExist:
+            return Response(
+                {"detail": "현재 참여 중인 매칭이 아닙니다."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        released_seat = participant.seat_position
+
+        with transaction.atomic():
+            participant.status = TripParticipant.StatusChoices.LEFT
+            participant.seat_position = None
+            participant.left_at = timezone.now()
+            participant.save(update_fields=["status", "seat_position", "left_at"])
+
+            joined_count = TripParticipant.objects.filter(
+                trip=trip,
+                status=TripParticipant.StatusChoices.JOINED,
+            ).count()
+
+            if trip.status == Trip.StatusChoices.FULL and joined_count < trip.capacity:
+                trip.status = Trip.StatusChoices.OPEN
+                trip.save(update_fields=["status"])
+
+        return Response(
+            {
+                "detail": "채팅방과 매칭에서 나갔습니다.",
+                "trip_id": trip.id,
+                "participant_status": participant.status,
+                "released_seat": released_seat,
+            },
+            status=status.HTTP_200_OK,
         )
 
 class ChatRoomMessageListView(APIView):
@@ -166,19 +317,21 @@ class ChatImageMessageCreateView(APIView):
                 "sender": user.username,
                 "sender_user_id": user.id,
                 "message_id": data.get("id"),
-                "sent_at": data.get("sent_at"),
+                "sent_at": str(data.get("sent_at")) if data.get("sent_at") else None,
                 "image_url": data.get("image_url"),
             }
 
-            async_to_sync(channel_layer.group_send)(
-                f"chat_{room.id}",
-                event,
-            )
-
-            if room.trip_id != room.id:
+            try:
                 async_to_sync(channel_layer.group_send)(
-                    f"chat_{room.trip_id}",
+                    f"chat_{room.id}",
                     event,
+                )
+            except Exception:
+                logger.exception(
+                    "Chat image broadcast failed. room_id=%s, trip_id=%s, message_id=%s",
+                    room.id,
+                    room.trip_id,
+                    data.get("id"),
                 )
 
         return Response(data, status=status.HTTP_201_CREATED)

@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 import os
+from urllib.parse import quote
 from dotenv import load_dotenv
 from pathlib import Path
 
@@ -25,12 +26,15 @@ load_dotenv(BASE_DIR / ".env")
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-rg0l!y)axn%15+!#=_yy7qi^9&s&(_jf=+6(#rc^5j2(va-m1a'
+SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-local-dev-key")
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv("DEBUG", "True").lower() == "true"
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.getenv("ALLOWED_HOSTS", "127.0.0.1,localhost").split(",")
+    if host.strip()
+]
 
 
 # Application definition
@@ -39,6 +43,7 @@ INSTALLED_APPS = [
     "daphne",
     "channels",
     'corsheaders',
+    'storages',
 
     'django.contrib.admin',
     'django.contrib.auth',
@@ -88,11 +93,28 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 ASGI_APPLICATION = "config.asgi.application"
+REDIS_HOST = os.getenv("REDIS_HOST", "redis")
+REDIS_PORT = os.getenv("REDIS_PORT", "6379")
+REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "")
+REDIS_SSL = os.getenv("REDIS_SSL", "False").lower() == "true"
+REDIS_DB = os.getenv("REDIS_DB", "0")
+
+REDIS_SCHEME = "rediss" if REDIS_SSL else "redis"
+
+if REDIS_PASSWORD:
+    REDIS_URL = (
+        f"{REDIS_SCHEME}://:{quote(REDIS_PASSWORD, safe='')}"
+        f"@{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}"
+    )
+else:
+    REDIS_URL = f"{REDIS_SCHEME}://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}"
+
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [(os.getenv("REDIS_HOST", "redis"), 6379)], # 'redis' 서비스 이름 사용
+            "hosts": [REDIS_URL],
+            "prefix": "{taximate-asgi}",
         },
     },
 }
@@ -146,8 +168,32 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
+
+AZURE_STORAGE_CONNECTION_STRING = os.getenv("AZURE_STORAGE_CONNECTION_STRING", "")
+AZURE_STORAGE_CONTAINER_NAME = os.getenv("AZURE_STORAGE_CONTAINER_NAME", "receipt-images")
+AZURE_STORAGE_URL_EXPIRATION_SECS = int(
+    os.getenv("AZURE_STORAGE_URL_EXPIRATION_SECS", "3600")
+)
+
+if AZURE_STORAGE_CONNECTION_STRING:
+    STORAGES = {
+        "default": {
+            "BACKEND": "storages.backends.azure_storage.AzureStorage",
+            "OPTIONS": {
+                "connection_string": AZURE_STORAGE_CONNECTION_STRING,
+                "azure_container": AZURE_STORAGE_CONTAINER_NAME,
+                "overwrite_files": False,
+                "expiration_secs": AZURE_STORAGE_URL_EXPIRATION_SECS,
+            },
+        },
+        "staticfiles": {
+            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+        },
+    }
+
 CLOVA_OCR_URL = os.getenv("CLOVA_OCR_URL", "")
 CLOVA_OCR_SECRET = os.getenv("CLOVA_OCR_SECRET", "")
 AUTH_USER_MODEL = "accounts.User"

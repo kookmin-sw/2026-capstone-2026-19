@@ -70,6 +70,13 @@ class TripCreateListView(APIView):
 class TripJoinView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    SEAT_MAP = {
+        "FRONT_PASSENGER": TripParticipant.SeatChoices.FRONT_PASSENGER,
+        "REAR_LEFT": TripParticipant.SeatChoices.REAR_LEFT,
+        "REAR_RIGHT": TripParticipant.SeatChoices.REAR_RIGHT,
+        "REAR_MIDDLE": TripParticipant.SeatChoices.REAR_MIDDLE,
+    }
+
     def post(self, request, pk):
         try:
             trip = Trip.objects.get(pk=pk)
@@ -121,6 +128,7 @@ class TripJoinView(APIView):
 
         except Exception as e:
             return Response({'message': f'참여 처리 중 오류가 발생했습니다: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 class MyTripListView(APIView):
     """내가 방장이거나, 멤버로 참여 중인 모든 동승 내역 조회"""

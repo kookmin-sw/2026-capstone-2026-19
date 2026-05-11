@@ -12,8 +12,8 @@ from .models import ChatRoom, ChatMessage
 
 class ChatConsumer(AsyncWebsocketConsumer):
     async def connect(self):
-        self.trip_id = self.scope["url_route"]["kwargs"]["trip_id"]
-        self.room_group_name = f"chat_{self.trip_id}"
+        self.room_id = self.scope["url_route"]["kwargs"]["trip_id"]
+        self.room_group_name = f"chat_{self.room_id}"
 
         self.user = await self._get_user_from_query_token()
 
@@ -49,7 +49,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         if not self.user.is_authenticated:
             return None
 
-        room = ChatRoom.objects.get(trip_id=self.trip_id)
+        room = ChatRoom.objects.get(id=self.room_id)
 
         chat_message = ChatMessage.objects.create(
             room=room,
