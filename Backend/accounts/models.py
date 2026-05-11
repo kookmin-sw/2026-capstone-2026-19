@@ -65,7 +65,12 @@ class User(AbstractUser):
         max_length=1,
         choices=GenderChoices.choices,
     )
-    profile_img_url = models.TextField(blank=True, null=True)
+    profile_img_url = models.ImageField(
+        upload_to="profiles/%Y/%m/%d/",
+        max_length=500,
+        blank=True,
+        null=True,
+    )
 
     trust_score = models.DecimalField(
         max_digits=3,
