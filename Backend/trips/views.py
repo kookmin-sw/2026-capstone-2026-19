@@ -4,6 +4,9 @@ from rest_framework import status, permissions
 from django.db import transaction
 from .models import Trip, TripParticipant
 from .serializers import TripSerializer
+from asgiref.sync import async_to_sync
+from channels.layers import get_channel_layer
+from chat.models import ChatRoom, ChatMessage
 
 
 class TripCreateListView(APIView):
@@ -118,6 +121,59 @@ class TripJoinView(APIView):
                     seat_position=django_seat,
                     status=TripParticipant.StatusChoices.JOINED  # 가입 완료 상태
                 )
+                
+                room = ChatRoom.objects.filter(trip=trip).first()
+
+                if room:
+                    system_text = f"@{request.user.username} 님이 참여하였습니다."
+
+                    system_message = ChatMessage.objects.create(
+                        room=room,
+                        sender_user=request.user,
+                        message=system_text,
+                        message_type=ChatMessage.MessageTypeChoices.SYSTEM,
+                    )
+
+                    channel_layer = get_channel_layer()
+
+                    if channel_layer:
+                        async_to_sync(channel_layer.group_send)(
+                            f"chat_{room.id}",
+                            {
+                                "type": "broadcast_message",
+                                "message_type": "system_message",
+                                "message": system_text,
+                                "sender": request.user.username,
+                                "sender_user_id": request.user.id,
+                                "message_id": system_message.id,
+                                "sent_at": system_message.sent_at.isoformat(),
+                            },
+                        )
+
+                        user_ids = set()
+
+                        if trip.leader_user_id:
+                            user_ids.add(trip.leader_user_id)
+
+                        joined_user_ids = trip.trip_participants.filter(
+                            status=TripParticipant.StatusChoices.JOINED,
+                        ).values_list("user_id", flat=True)
+
+                        user_ids.update(joined_user_ids)
+
+                        for user_id in user_ids:
+                            async_to_sync(channel_layer.group_send)(
+                                f"user_{user_id}",
+                                {
+                                    "type": "chat_room_updated",
+                                    "room_id": room.id,
+                                    "last_message": system_text,
+                                    "message_type": "SYSTEM",
+                                    "sender": request.user.username,
+                                    "sender_user_id": request.user.id,
+                                    "sent_at": system_message.sent_at.isoformat(),
+                                },
+                            )
 
                 # 만약 방금 내가 들어가서 정원이 다 찼다면, 핀 상태를 마감(CLOSED)으로 변경
                 if (current_joined_count + 1) >= trip.capacity:
