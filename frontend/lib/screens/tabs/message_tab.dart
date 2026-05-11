@@ -69,10 +69,26 @@ class ChatRoomModel {
     }
   }
 
+class NoComposingUnderlineController extends TextEditingController {
+  NoComposingUnderlineController();
+
+  @override
+  TextSpan buildTextSpan({
+    required BuildContext context,
+    TextStyle? style,
+    required bool withComposing,
+  }) {
+    return TextSpan(
+      style: style,
+      text: text,
+    );
+  }
+}
+
 // ── 메시지 모델 ──────────────────────────────────
 class _Message {
   final String id, text, time, userId;
-  final bool isMe, isLink, isSettlement;
+  final bool isMe, isLink, isSettlement, isSystem;
   final SettlementMessage? settlement;
   final File? imageFile;
   final String? imageUrl;
@@ -85,6 +101,7 @@ class _Message {
     required this.isMe,
     this.isLink = false,
     this.isSettlement = false,
+    this.isSystem = false,
     this.settlement,
     this.imageFile,
     this.imageUrl,
@@ -163,7 +180,7 @@ class _MessageTabState extends State<MessageTab> {
   bool _isLoading = true;
   bool _isFetchingChatRooms = false;
   WebSocketChannel? _notificationChannel;
-  final Set<int> _roomsWithNewMessage = <int>{};
+  static final Set<int> _roomsWithNewMessage = <int>{};
 
   // 🌟 실제 로그인 환경에서는 이 닉네임을 전역 상태(UserProvider 등)에서 가져와야 합니다.
   // 현재는 TripService의 토큰 흐름에 맞춰 상수로 두거나 생성 시 받아와야 합니다.
@@ -432,7 +449,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         .where((message) => !(message.isSettlement && message.settlement != null))
         .toList();
   }
-  final TextEditingController _inputCtrl = TextEditingController();
+  final TextEditingController _inputCtrl = NoComposingUnderlineController();
   final ScrollController _scrollCtrl = ScrollController();
   // 테스트용 리더 토큰. 실제 배포에서는 로그인 후 저장된 토큰을 사용해야 함.
   //static const String _settlementToken = AuthSession.token ?? '';
@@ -525,6 +542,21 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
             TripService.notifyTripsChanged();
             TripService.notifyChatRoomsChanged();
           });
+
+          return;
+        }
+
+        if (messageType == 'system_message') {
+          _messages.add(
+            _Message(
+              id: 'msg_${decoded['message_id'] ?? DateTime.now().millisecondsSinceEpoch}',
+              userId: 'system',
+              text: decoded['message']?.toString() ?? '',
+              time: _formatMessageTime(decoded['sent_at']?.toString()),
+              isMe: false,
+              isSystem: true,
+            ),
+          );
 
           return;
         }
@@ -683,6 +715,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
         final senderUsername = map['sender_username']?.toString() ?? '';
         final senderUserId = map['sender_user_id']?.toString() ?? '';
+        final messageType = map['message_type']?.toString() ?? '';
 
         return _Message(
           id: 'msg_${map['id']}',
@@ -690,7 +723,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           text: map['message']?.toString() ?? '',
           time: _formatMessageTime(map['sent_at']?.toString()),
           isMe: senderUsername == widget.myNickname,
-          imageUrl: map['message_type'] == 'IMAGE'
+          isSystem: messageType == 'SYSTEM',
+          imageUrl: messageType == 'IMAGE'
             ? _normalizeImageUrl(map['image_url'])
             : null,
         );
@@ -931,9 +965,35 @@ void _scrollToBottomAfterLayout({bool jump = false, bool force = false}) {
     );
   }
 
+  Widget _buildSystemMessage(String text) {
+    return Center(
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: const Color(0xFFEFEFEF),
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Text(
+          text,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            fontSize: 11,
+            color: AppColors.gray,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildMessageBubble(_Message msg) {
     if (msg.isSettlement && msg.settlement != null) {
       return _buildSettlementRequestCard(msg.settlement!);
+    }
+
+    if (msg.isSystem) {
+      return _buildSystemMessage(msg.text);
     }
 
     if (msg.imageFile != null || (msg.imageUrl != null && msg.imageUrl!.isNotEmpty)) {
@@ -1964,7 +2024,7 @@ void _scrollToBottomAfterLayout({bool jump = false, bool force = false}) {
 
                   Expanded(
                     child: Container(
-                      height: 40,
+                      height: 42,
                       padding: const EdgeInsets.symmetric(horizontal: 14),
                       decoration: BoxDecoration(
                         color: const Color(0xFFF4F4F2),
@@ -1982,11 +2042,6 @@ void _scrollToBottomAfterLayout({bool jump = false, bool force = false}) {
                             height: 1.2,
                             color: AppColors.secondary,
                           ),
-                          strutStyle: const StrutStyle(
-                            fontSize: 14,
-                            height: 1.2,
-                            forceStrutHeight: true,
-                          ),
                           decoration: const InputDecoration(
                             hintText: '메시지 입력...',
                             hintStyle: TextStyle(
@@ -1996,8 +2051,7 @@ void _scrollToBottomAfterLayout({bool jump = false, bool force = false}) {
                             ),
                             border: InputBorder.none,
                             isDense: true,
-                            isCollapsed: true,
-                            contentPadding: EdgeInsets.zero,
+                            contentPadding: const EdgeInsets.only(top: 8, bottom: 6),
                           ),
                           onSubmitted: (_) => _sendMessage(),
                         ),

@@ -210,6 +210,56 @@ class ChatRoomLeaveView(APIView):
                 trip.status = Trip.StatusChoices.OPEN
                 trip.save(update_fields=["status"])
 
+            system_text = f"@{user.username} 님이 퇴장하였습니다."
+
+            system_message = ChatMessage.objects.create(
+                room=room,
+                sender_user=user,
+                message=system_text,
+                message_type=ChatMessage.MessageTypeChoices.SYSTEM,
+            )
+
+            channel_layer = get_channel_layer()
+
+            if channel_layer:
+                async_to_sync(channel_layer.group_send)(
+                    f"chat_{room.id}",
+                    {
+                        "type": "broadcast_message",
+                        "message_type": "system_message",
+                        "message": system_text,
+                        "sender": user.username,
+                        "sender_user_id": user.id,
+                        "message_id": system_message.id,
+                        "sent_at": system_message.sent_at.isoformat(),
+                    },
+                )
+
+                user_ids = set()
+
+                if trip.leader_user_id:
+                    user_ids.add(trip.leader_user_id)
+
+                joined_user_ids = trip.trip_participants.filter(
+                    status=TripParticipant.StatusChoices.JOINED,
+                ).values_list("user_id", flat=True)
+
+                user_ids.update(joined_user_ids)
+
+                for user_id in user_ids:
+                    async_to_sync(channel_layer.group_send)(
+                        f"user_{user_id}",
+                        {
+                            "type": "chat_room_updated",
+                            "room_id": room.id,
+                            "last_message": system_text,
+                            "message_type": "SYSTEM",
+                            "sender": user.username,
+                            "sender_user_id": user.id,
+                            "sent_at": system_message.sent_at.isoformat(),
+                        },
+                    )
+
         return Response(
             {
                 "detail": "채팅방과 매칭에서 나갔습니다.",
