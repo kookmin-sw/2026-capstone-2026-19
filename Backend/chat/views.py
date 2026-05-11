@@ -333,5 +333,37 @@ class ChatImageMessageCreateView(APIView):
                     room.trip_id,
                     data.get("id"),
                 )
+            try:
+                user_ids = set()
+
+                if room.trip.leader_user_id:
+                    user_ids.add(room.trip.leader_user_id)
+
+                joined_user_ids = room.trip.trip_participants.filter(
+                    status=TripParticipant.StatusChoices.JOINED,
+                ).values_list("user_id", flat=True)
+
+                user_ids.update(joined_user_ids)
+
+                for user_id in user_ids:
+                    async_to_sync(channel_layer.group_send)(
+                        f"user_{user_id}",
+                        {
+                            "type": "chat_room_updated",
+                            "room_id": room.id,
+                            "last_message": "사진을 보냈습니다.",
+                            "message_type": "IMAGE",
+                            "sender": user.username,
+                            "sender_user_id": user.id,
+                            "sent_at": str(data.get("sent_at")) if data.get("sent_at") else None,
+                        },
+                    )
+            except Exception:
+                logger.exception(
+                    "Chat image notification failed. room_id=%s, trip_id=%s, message_id=%s",
+                    room.id,
+                    room.trip_id,
+                    data.get("id"),
+                )
 
         return Response(data, status=status.HTTP_201_CREATED)

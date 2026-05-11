@@ -35,11 +35,22 @@ class ChatRoomModel {
   });
 
   factory ChatRoomModel.fromJson(Map<String, dynamic> json) {
+    final dynamic rawLastMessage = json['last_message'];
+
+    final String displayLastMessage;
+    if (rawLastMessage == null) {
+      displayLastMessage = "채팅방이 생성되었습니다.";
+    } else if (rawLastMessage.toString().trim().isEmpty) {
+      displayLastMessage = "사진을 보냈습니다.";
+    } else {
+      displayLastMessage = rawLastMessage.toString();
+    }
+
     return ChatRoomModel(
       id: json['id'],
       tripId: json['trip_id'],
       name: json['trip_title'] ?? "새 채팅방",
-      lastMessage: json['last_message'] ?? "채팅방이 생성되었습니다.",
+      lastMessage: displayLastMessage,
       time: _formatDate(json['created_at'] ?? ""),
       unreadCount: json['unread_count'] ?? 0,
       pinnedNotice: json['pinned_notice'] ?? "만날 위치를 공유해주세요",
@@ -47,16 +58,16 @@ class ChatRoomModel {
     );
   }
 
-  static String _formatDate(String dateStr) {
-    if (dateStr.isEmpty) return "";
-    try {
-      final DateTime dt = DateTime.parse(dateStr).toLocal();
-      return "${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
-    } catch (e) {
-      return dateStr;
+    static String _formatDate(String dateStr) {
+      if (dateStr.isEmpty) return "";
+      try {
+        final DateTime dt = DateTime.parse(dateStr).toLocal();
+        return "${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
+      } catch (e) {
+        return dateStr;
+      }
     }
   }
-}
 
 // ── 메시지 모델 ──────────────────────────────────
 class _Message {
@@ -150,13 +161,16 @@ class MessageTab extends StatefulWidget {
 class _MessageTabState extends State<MessageTab> {
   List<ChatRoomModel> _serverRooms = [];
   bool _isLoading = true;
+  bool _isFetchingChatRooms = false;
+  WebSocketChannel? _notificationChannel;
+  final Set<int> _roomsWithNewMessage = <int>{};
 
   // 🌟 실제 로그인 환경에서는 이 닉네임을 전역 상태(UserProvider 등)에서 가져와야 합니다.
   // 현재는 TripService의 토큰 흐름에 맞춰 상수로 두거나 생성 시 받아와야 합니다.
   String get _currentUsername => AuthSession.username ?? '';
 
   void _onChatRoomsChanged() {
-    _fetchChatRooms();
+    _fetchChatRooms(showLoading: false);
   }
 
   @override
@@ -165,28 +179,96 @@ class _MessageTabState extends State<MessageTab> {
     _fetchChatRooms();
 
     TripService.chatRoomsRefreshNotifier.addListener(_onChatRoomsChanged);
+    _connectNotificationWebSocket();
   }
 
   @override
   void dispose() {
+    _notificationChannel?.sink.close();
     TripService.chatRoomsRefreshNotifier.removeListener(_onChatRoomsChanged);
     super.dispose();
   }
 
-  Future<void> _fetchChatRooms() async {
-    if (!mounted) return;
-    setState(() => _isLoading = true);
+  Future<void> _fetchChatRooms({bool showLoading = true}) async {
+    if (!mounted || _isFetchingChatRooms) return;
 
-    final List<dynamic> data = await TripService.getChatRooms(
-      token: AuthSession.token ?? '', // 실제 연동시 UserToken 입력
-    );
+    _isFetchingChatRooms = true;
 
-    if (mounted) {
+    if (showLoading) {
+      setState(() => _isLoading = true);
+    }
+
+    try {
+      final List<dynamic> data = await TripService.getChatRooms(
+        token: AuthSession.token ?? '',
+      );
+
+      if (!mounted) return;
+
       setState(() {
         _serverRooms = data.map((item) => ChatRoomModel.fromJson(item)).toList();
         _isLoading = false;
       });
+    } catch (e) {
+      print('채팅방 목록 불러오기 실패: $e');
+
+      if (mounted && showLoading) {
+        setState(() => _isLoading = false);
+      }
+    } finally {
+      _isFetchingChatRooms = false;
     }
+  }
+
+  void _connectNotificationWebSocket() {
+    final token = AuthSession.token;
+
+    if (token == null || token.isEmpty) {
+      return;
+    }
+
+    final encodedToken = Uri.encodeComponent(token);
+    final wsUrl = Uri.parse(
+      '${AppConfig.wsBaseUrl}/ws/notifications/?token=$encodedToken',
+    );
+
+    _notificationChannel = WebSocketChannel.connect(wsUrl);
+
+    _notificationChannel!.stream.listen(
+      (data) {
+        final decodedRaw = jsonDecode(data);
+
+        if (decodedRaw is! Map) {
+          return;
+        }
+
+        final decoded = Map<String, dynamic>.from(decodedRaw);
+        final eventType = decoded['type']?.toString();
+
+        if (eventType == 'chat_room_updated') {
+          final int? roomId = decoded['room_id'] is int
+              ? decoded['room_id'] as int
+              : int.tryParse(decoded['room_id']?.toString() ?? '');
+
+          final String sender = decoded['sender']?.toString() ?? '';
+          final bool isMine = sender.isNotEmpty && sender == _currentUsername;
+
+          if (!isMine && roomId != null && mounted) {
+            setState(() {
+              _roomsWithNewMessage.add(roomId);
+            });
+          }
+
+          _fetchChatRooms(showLoading: false);
+        }
+      },
+      onError: (error) {
+        print('채팅방 목록 알림 WebSocket 오류: $error');
+      },
+      onDone: () {
+        print('채팅방 목록 알림 WebSocket 종료');
+      },
+    );
   }
 
   @override
@@ -240,22 +322,33 @@ class _MessageTabState extends State<MessageTab> {
   }
 
   Widget _buildRoomTile(BuildContext context, ChatRoomModel room) {
+    final bool hasNewMessage =
+      _roomsWithNewMessage.contains(room.id) || room.unreadCount > 0;
     return InkWell(
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => ChatRoomScreen(
-            room: room,
-            myNickname: _currentUsername, // 🌟 더미가 아닌 현재 접속 유저 정보 전달
+      onTap: () async {
+        setState(() {
+          _roomsWithNewMessage.remove(room.id);
+        });
+
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ChatRoomScreen(
+              room: room,
+              myNickname: _currentUsername,
+            ),
           ),
-        ),
-      ),
+        );
+
+        if (!mounted) return;
+        await _fetchChatRooms(showLoading: false);
+      },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: AppColors.border))),
         child: Row(
           children: [
-            _buildAvatar(room.unreadCount > 0),
+            _buildAvatar(hasNewMessage),
             const SizedBox(width: 14),
             Expanded(
               child: Column(
@@ -270,7 +363,7 @@ class _MessageTabState extends State<MessageTab> {
                 ],
               ),
             ),
-            if (room.unreadCount > 0) _buildUnreadBadge(room.unreadCount),
+            if (hasNewMessage) _buildNewBadge(),
           ],
         ),
       ),
@@ -289,12 +382,24 @@ class _MessageTabState extends State<MessageTab> {
     ]);
   }
 
-  Widget _buildUnreadBadge(int count) {
+  Widget _buildNewBadge() {
     return Container(
       margin: const EdgeInsets.only(left: 8),
-      width: 20, height: 20,
-      decoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
-      child: Center(child: Text('$count', style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700))),
+      width: 22,
+      height: 22,
+      alignment: Alignment.center,
+      decoration: const BoxDecoration(
+        color: Colors.red,
+        shape: BoxShape.circle,
+      ),
+      child: const Text(
+        'N',
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
     );
   }
 }
