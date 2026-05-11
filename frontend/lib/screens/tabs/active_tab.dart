@@ -51,7 +51,7 @@ class ActiveRidePin {
 
     return ActiveRidePin(
       id: json['id'],
-      hostId: json['host_nickname'] ?? '익명',
+      hostId: json['host_username'] ?? '익명',
       dept: json['depart_name'],
       dest: json['arrive_name'],
       departTime: parsedTime,

@@ -2,11 +2,11 @@ from rest_framework import serializers
 from .models import Trip, TripParticipant
 
 class TripParticipantSerializer(serializers.ModelSerializer):
-    nickname = serializers.ReadOnlyField(source='user.nickname')
+    username = serializers.ReadOnlyField(source='user.username')
 
     class Meta:
         model = TripParticipant
-        fields = ['user', 'nickname', 'role', 'seat_position', 'status']
+        fields = ['user', 'username', 'role', 'seat_position', 'status']
 
 class TripSerializer(serializers.ModelSerializer):
     current_count = serializers.SerializerMethodField()
@@ -14,7 +14,7 @@ class TripSerializer(serializers.ModelSerializer):
     participants = TripParticipantSerializer(source='trip_participants', many=True, read_only=True)
 
     leader_user_id = serializers.IntegerField(source='leader_user.id', read_only=True)
-    host_nickname = serializers.SerializerMethodField()
+    host_username = serializers.SerializerMethodField()
     is_mine = serializers.SerializerMethodField()
     kakaopay_link = serializers.ReadOnlyField(source='payment_channel.kakaopay_link')
 
@@ -29,15 +29,15 @@ class TripSerializer(serializers.ModelSerializer):
             'arrive_name', 'arrive_lat', 'arrive_lng',
             'depart_time', 'capacity', 'status', 'estimated_fare',
             'current_count', 'participants',
-            'leader_user_id', 'host_nickname', 'is_mine','taken_seats', 'kakaopay_link',
+            'leader_user_id', 'host_username', 'is_mine','taken_seats', 'kakaopay_link',
         ]
 
     def get_current_count(self, obj):
         # JOINED 상태인 멤버만 카운트
         return obj.trip_participants.filter(status="JOINED").count()
 
-    def get_host_nickname(self, obj):
-        return obj.leader_user.nickname or obj.leader_user.username
+    def get_host_username(self, obj):
+        return obj.leader_user.username
 
     def get_is_mine(self, obj):
         request = self.context.get('request')

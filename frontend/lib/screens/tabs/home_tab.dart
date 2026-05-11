@@ -117,7 +117,7 @@ class _HomeTabState extends State<HomeTab> {
 
       return RidePin(
         id: trip['id'].toString(),
-        hostId: (trip['host_nickname'] ?? hostId).toString(),
+        hostId: (trip['host_username'] ?? hostId).toString(),
         dept: (trip['depart_name'] ?? '').toString(),
         dest: (trip['arrive_name'] ?? '').toString(),
         time: timeText,
@@ -125,7 +125,7 @@ class _HomeTabState extends State<HomeTab> {
         cur: trip['current_count'] ?? 0,
         lat: double.tryParse(trip['depart_lat'].toString()) ?? 0.0,
         lng: double.tryParse(trip['depart_lng'].toString()) ?? 0.0,
-        isMine: trip['is_mine'] == true || (trip['host_nickname'] ?? hostId).toString() == (AuthSession.username ?? ''),
+        isMine: trip['is_mine'] == true || (trip['host_username'] ?? hostId).toString() == (AuthSession.username ?? ''),
         takenSeats: (trip['taken_seats'] as List? ?? []).map((s) => s.toString()).toList(),
       );
     }).toList();

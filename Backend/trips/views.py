@@ -24,6 +24,16 @@ class TripCreateListView(APIView):
         flutter_seat = data.get('seat_position')
         kakaopay_link = (data.get("kakaopay_link") or "").strip()
 
+        joined_count = TripParticipant.objects.filter(
+            user=request.user,
+            status=TripParticipant.StatusChoices.JOINED,
+        ).count()
+        if joined_count >= 2:
+            return Response(
+                {'message': '동시에 최대 2개의 매칭에만 참여할 수 있습니다.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         if not kakaopay_link:
             return Response(
                 {'message': '카카오페이 송금 링크는 필수입니다.'},
@@ -107,6 +117,16 @@ class TripJoinView(APIView):
         ).first()
         if existing_joined:
             return Response({"message": "이미 참여 중인 팀입니다."}, status=status.HTTP_400_BAD_REQUEST)
+
+        joined_count = TripParticipant.objects.filter(
+            user=request.user,
+            status=TripParticipant.StatusChoices.JOINED,
+        ).count()
+        if joined_count >= 2:
+            return Response(
+                {'message': '동시에 최대 2개의 매칭에만 참여할 수 있습니다.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         # 4. 좌석 매핑 및 중복 검사
         flutter_seat = request.data.get('seat_position')

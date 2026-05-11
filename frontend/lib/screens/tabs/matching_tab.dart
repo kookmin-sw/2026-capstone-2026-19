@@ -78,7 +78,7 @@ class _MatchingTabState extends State<MatchingTab> with SingleTickerProviderStat
         final List<String> takenSeats = rawSeats.map((s) => s.toString()).toList();
         return home.RidePin(
           id: item['id'].toString(),
-          hostId: item['host_nickname'] ?? '익명',
+          hostId: item['host_username'] ?? '익명',
           dept: item['depart_name'],
           dest: item['arrive_name'],
           time: DateTime.parse(item['depart_time']).toLocal().toString().substring(11, 16),
