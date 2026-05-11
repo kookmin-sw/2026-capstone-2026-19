@@ -131,7 +131,9 @@
 
 
 ## 🌐 시스템 아키텍쳐
-![시스템 아키텍쳐 이미지](https://raw.githubusercontent.com/kookmin-sw/2026-capstone-19/master/System%20Architecture.jpeg)
+<img src="https://raw.githubusercontent.com/kookmin-sw/2026-capstone-19/master/System%20Architecture.jpeg" 
+     alt="시스템 아키텍쳐 이미지" width="700">
+
 
 
 
