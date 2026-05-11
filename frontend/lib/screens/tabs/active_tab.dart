@@ -144,11 +144,20 @@ class ActiveRideState extends ChangeNotifier {
   }
 
   // 📍 4. 핀 삭제 및 신청 취소
-  Future<void> deleteOrCancelTrip(int tripId) async {
-    final success = await TripService.deleteTrip(
-      token: AuthSession.token ?? '',
-      tripId: tripId,
-    );
+  Future<void> deleteOrCancelTrip(int tripId, {required bool isMine}) async {
+    bool success = false;
+    if (isMine) {
+      success = await TripService.deleteTrip(
+        token: AuthSession.token ?? '',
+        tripId: tripId,
+      );
+    } else {
+      final result = await TripService.leaveTrip(
+        token: AuthSession.token ?? '',
+        tripId: tripId,
+      );
+      success = result['success'] == true;
+    }
     if (success) await fetchActiveRides();
   }
 }
@@ -1051,13 +1060,13 @@ class _ActiveTabState extends State<ActiveTab> with SingleTickerProviderStateMix
   }
 
   void _showCancelDialog(ActiveRidePin pin) {
-    showDialog(context: context, builder: (_) => AlertDialog(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)), title: const Text('신청 취소', style: TextStyle(fontWeight: FontWeight.w700)), content: Text('${pin.dept} → ${pin.dest}\n참여 신청을 취소할까요?'), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('돌아가기')), ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: AppColors.red, foregroundColor: Colors.white, elevation: 0), onPressed: () { Navigator.pop(context); _state.deleteOrCancelTrip(pin.id); }, child: const Text('신청 취소'))]));
+    showDialog(context: context, builder: (_) => AlertDialog(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)), title: const Text('신청 취소', style: TextStyle(fontWeight: FontWeight.w700)), content: Text('${pin.dept} → ${pin.dest}\n참여 신청을 취소할까요?'), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('돌아가기')), ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: AppColors.red, foregroundColor: Colors.white, elevation: 0), onPressed: () { Navigator.pop(context); _state.deleteOrCancelTrip(pin.id, isMine: false); }, child: const Text('신청 취소'))]));
   }
   void _showFinishDialog(ActiveRidePin pin) {
     showDialog(context: context, builder: (_) => AlertDialog(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)), title: const Text('핀 모집 완료', style: TextStyle(fontWeight: FontWeight.w700)), content: Text('${pin.dept} → ${pin.dest}\n해당 핀의 모집을 완료할까요?'), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('돌아가기')), ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryDark, foregroundColor: Colors.white, elevation: 0), onPressed: () { Navigator.pop(context); _state.closePinRecruit(pin.id); }, child: const Text('완료하기'))]));
   }
   void _showDeleteDialog(ActiveRidePin pin) {
-    showDialog(context: context, builder: (_) => AlertDialog(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)), title: const Text('핀 삭제', style: TextStyle(fontWeight: FontWeight.w700)), content: Text('${pin.dept} → ${pin.dest}\n생성한 핀을 삭제할까요?'), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('돌아가기')), ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: AppColors.red, foregroundColor: Colors.white, elevation: 0), onPressed: () { Navigator.pop(context); _state.deleteOrCancelTrip(pin.id); }, child: const Text('삭제하기'))]));
+    showDialog(context: context, builder: (_) => AlertDialog(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)), title: const Text('핀 삭제', style: TextStyle(fontWeight: FontWeight.w700)), content: Text('${pin.dept} → ${pin.dest}\n생성한 핀을 삭제할까요?'), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('돌아가기')), ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: AppColors.red, foregroundColor: Colors.white, elevation: 0), onPressed: () { Navigator.pop(context); _state.deleteOrCancelTrip(pin.id, isMine: true); }, child: const Text('삭제하기'))]));
   }
 
   Widget _profileCircle(double size) => Container(width: size, height: size, decoration: BoxDecoration(color: AppColors.bg, shape: BoxShape.circle, border: Border.all(color: AppColors.border)), child: Icon(Icons.person, color: AppColors.gray, size: size * 0.55));

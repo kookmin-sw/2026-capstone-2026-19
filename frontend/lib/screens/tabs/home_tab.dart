@@ -81,12 +81,7 @@ class _HomeTabState extends State<HomeTab> {
 
   final DraggableScrollableController _sheetController = DraggableScrollableController();
 
-  static const _dummyNotifications = [
-    {'icon':'🚖','msg':'taxi_kim님이 동승 요청을 수락했습니다.',     'time':'방금 전'},
-    {'icon':'💬','msg':'강남→김포 팀 채팅에 새 메시지가 있습니다.',  'time':'5분 전'},
-    {'icon':'📍','msg':'내 근처에 새로운 동승 핀이 생성되었습니다.', 'time':'12분 전'},
-    {'icon':'✅','msg':'이용 내역이 정산되었습니다.',                 'time':'1시간 전'},
-  ];
+  static const _dummyNotifications = [];
 
   int _lastPinCount = globalPins.length;
 
@@ -167,30 +162,17 @@ class _HomeTabState extends State<HomeTab> {
 
     // 🔴 새로 만드는 단계별 실행 함수
     Future<void> _startAppSequence() async {
-        if (!mounted) return;
+      if (!mounted) return;
 
-        // 1단계: 서버 핀 데이터 가져오기
-        await _fetchServerPins();
+      // 1) 서버 핀 데이터 가져오기 → 2) 위치 초기화 → 3) 완료 즉시 지도 로딩 허용
+      await _fetchServerPins();
+      await _initLocation();
 
-        // 2단계: 0.6초 쉬었다가 GPS 시동
-        await Future.delayed(const Duration(milliseconds: 600));
-        if (mounted) await _initLocation();
-
-        // 3단계: 1.2초 뒤에 지도 로딩 허용
-        await Future.delayed(const Duration(milliseconds: 1200));
-        if (mounted) {
-          setState(() {
-            _canLoadMap = true;
-          }); // 👈 누락됐던 괄호 1
-        } // 👈 누락됐던 괄호 2
-
-        // 4단계: 에뮬레이터 무한 로딩 방지용 강제 종료 타임아웃
-        await Future.delayed(const Duration(seconds: 3));
-        if (mounted && _locationLoading) {
-          setState(() {
-            _locationLoading = false;
-          });
-        }
+      if (!mounted) return;
+      setState(() {
+        _canLoadMap = true;
+        _locationLoading = false;
+      });
       }
   @override
   void dispose() {
@@ -487,11 +469,8 @@ class _HomeTabState extends State<HomeTab> {
   // ── 지도 + 드래그 시트 ──
   Widget _buildMapWithSheet() {
       return Stack(children: [
-        // 지도는 항상 유지 (재빌드 방지)
-        if (_canLoadMap)
-          _buildKakaoMap()
-        else
-          _buildMapPlaceholder(),
+        // 지도 준비 전에는 플레이스홀더만 렌더링해 로딩 중복 노출 방지
+        _canLoadMap ? _buildKakaoMap() : _buildMapPlaceholder(),
 
         // 내 위치 버튼
         if (_canLoadMap)
@@ -539,25 +518,6 @@ class _HomeTabState extends State<HomeTab> {
               );
             },
           ),
-
-        // 지도 로딩 오버레이 - 위젯 트리 구조 유지를 위해 Visibility 사용
-        // 위치 로딩 + 지도 준비 완료 후에만 숨김
-        Visibility(
-          visible: _locationLoading,
-          child: Container(
-            color: Colors.white.withOpacity(0.7),
-            child: const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CircularProgressIndicator(color: AppColors.primary),
-                  SizedBox(height: 12),
-                  Text('내 위치를 찾는 중...', style: TextStyle(fontSize: 13, color: AppColors.gray)),
-                ],
-              ),
-            ),
-          ),
-        ),
       ]);
     } // 🔴 _buildMapWithSheet 함수는 여기서 완전히 끝납니다! 🔴
 
@@ -718,6 +678,36 @@ class _HomeTabState extends State<HomeTab> {
 
   // -- 동승 카드 --
   Widget _buildRideCard(RidePin pin) {
+    String normalizeSeatCode(String raw) {
+      switch (raw) {
+        case '조수석':
+          return 'FRONT_PASSENGER';
+        case '왼쪽 창가':
+          return 'REAR_LEFT';
+        case '가운데':
+          return 'REAR_MIDDLE';
+        case '오른쪽 창가':
+          return 'REAR_RIGHT';
+        default:
+          return raw.toUpperCase();
+      }
+    }
+
+    final takenSeatSet = pin.takenSeats.map(normalizeSeatCode).toSet();
+    const seatOrder = [
+      'FRONT_PASSENGER',
+      'REAR_LEFT',
+      'REAR_MIDDLE',
+      'REAR_RIGHT',
+    ];
+
+    bool isSeatTakenByIndex(int index) {
+      if (index >= pin.max) return false;
+      if (takenSeatSet.isEmpty) return index < pin.cur;
+      final seatCode = seatOrder[index];
+      return takenSeatSet.contains(seatCode);
+    }
+
     final isSelected = _selectedRideId == pin.id;
 
     // 현재 지도 중심으로부터의 거리
@@ -810,11 +800,11 @@ class _HomeTabState extends State<HomeTab> {
               ...List.generate(pin.max, (j) => Container(
                 width: 22, height: 22, margin: const EdgeInsets.only(right: 4),
                 decoration: BoxDecoration(
-                  color: j < pin.cur ? AppColors.primary : AppColors.bg,
+                  color: isSeatTakenByIndex(j) ? AppColors.primary : AppColors.bg,
                   borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: j < pin.cur ? AppColors.primary : AppColors.border),
+                  border: Border.all(color: isSeatTakenByIndex(j) ? AppColors.primary : AppColors.border),
                 ),
-                child: j < pin.cur ? const Icon(Icons.person, color: Colors.white, size: 13) : null,
+                child: isSeatTakenByIndex(j) ? const Icon(Icons.person, color: Colors.white, size: 13) : null,
               )),
               const SizedBox(width: 6),
               Text('${pin.cur}/${pin.max}명', style: const TextStyle(fontSize: 11, color: AppColors.gray)),
@@ -861,6 +851,7 @@ class _HomeTabState extends State<HomeTab> {
                                       'time': pin.time,
                                       'max': pin.max,
                                       'cur': pin.cur,
+                                      'takenSeats': pin.takenSeats,
                                     },
                                   ),
                                 ),
@@ -912,27 +903,44 @@ class _HomeTabState extends State<HomeTab> {
                 ]),
               ),
               const Divider(height: 1, color: AppColors.border),
-              ..._dummyNotifications.map((n) => InkWell(
-                onTap: () => setState(() => _showNotifications = false),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(n['icon']!, style: const TextStyle(fontSize: 20)),
-                      const SizedBox(width: 12),
-                      Expanded(child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(n['msg']!, style: const TextStyle(fontSize: 13, color: AppColors.secondary)),
-                          const SizedBox(height: 2),
-                          Text(n['time']!, style: const TextStyle(fontSize: 11, color: AppColors.gray)),
-                        ],
-                      )),
-                    ],
+              if (_dummyNotifications.isEmpty)
+                const SizedBox(
+                  height: 160,
+                  child: Center(
+                    child: Text(
+                      '새로운 알림이 없습니다.',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: AppColors.gray,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
-                ),
-              )),
+                )
+              else
+                ..._dummyNotifications.map((n) => InkWell(
+                      onTap: () => setState(() => _showNotifications = false),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(n['icon']!, style: const TextStyle(fontSize: 20)),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(n['msg']!, style: const TextStyle(fontSize: 13, color: AppColors.secondary)),
+                                  const SizedBox(height: 2),
+                                  Text(n['time']!, style: const TextStyle(fontSize: 11, color: AppColors.gray)),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )),
               const SizedBox(height: 4),
             ],
           ),
