@@ -174,6 +174,16 @@ class ChatRoomLeaveView(APIView):
                 {"detail": "리더는 채팅방을 나갈 수 없습니다. 모집 완료 또는 핀 삭제 기능을 이용해주세요."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+            
+        if trip.status in [
+            Trip.StatusChoices.FULL,
+            Trip.StatusChoices.CLOSED,
+            Trip.StatusChoices.COMPLETED,
+        ]:
+            return Response(
+                {"detail": "모집이 완료된 이후에는 채팅방을 나갈 수 없습니다."},
+                status=status.HTTP_409_CONFLICT,
+            )
 
         if Settlement.objects.filter(trip=trip).exists():
             return Response(

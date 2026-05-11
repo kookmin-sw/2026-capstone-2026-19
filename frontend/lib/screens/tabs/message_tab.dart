@@ -181,6 +181,7 @@ class _MessageTabState extends State<MessageTab> {
   bool _isFetchingChatRooms = false;
   WebSocketChannel? _notificationChannel;
   static final Set<int> _roomsWithNewMessage = <int>{};
+  static int? _openedRoomId;
 
   // 🌟 실제 로그인 환경에서는 이 닉네임을 전역 상태(UserProvider 등)에서 가져와야 합니다.
   // 현재는 TripService의 토큰 흐름에 맞춰 상수로 두거나 생성 시 받아와야 합니다.
@@ -270,7 +271,7 @@ class _MessageTabState extends State<MessageTab> {
           final String sender = decoded['sender']?.toString() ?? '';
           final bool isMine = sender.isNotEmpty && sender == _currentUsername;
 
-          if (!isMine && roomId != null && mounted) {
+          if (!isMine && roomId != null && roomId != _openedRoomId && mounted) {
             setState(() {
               _roomsWithNewMessage.add(roomId);
             });
@@ -347,6 +348,8 @@ class _MessageTabState extends State<MessageTab> {
           _roomsWithNewMessage.remove(room.id);
         });
 
+        _openedRoomId = room.id;
+
         await Navigator.push(
           context,
           MaterialPageRoute(
@@ -357,7 +360,12 @@ class _MessageTabState extends State<MessageTab> {
           ),
         );
 
+        _openedRoomId = null;
+
         if (!mounted) return;
+        setState(() {
+          _roomsWithNewMessage.remove(room.id);
+        });
         await _fetchChatRooms(showLoading: false);
       },
       child: Container(
@@ -583,12 +591,22 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               ? Map<String, dynamic>.from(settlementRaw)
               : decoded;
 
+          final rawSettlementId = settlementJson['id'];
+          final settlementId = int.tryParse(rawSettlementId?.toString() ?? '');
+          final messageId = settlementId != null
+              ? 'settlement_$settlementId'
+              : 'settlement_${decoded['message_id'] ?? DateTime.now().millisecondsSinceEpoch}';
+
+          _messages.removeWhere(
+            (message) => message.isSettlement && message.id == messageId,
+          );
+
           _messages.add(
             _Message(
-              id: DateTime.now().millisecondsSinceEpoch.toString(),
+              id: messageId,
               userId: decoded['sender']?.toString() ?? 'system',
-              text: '정산 요청이 도착했습니다.',
-              time: TimeOfDay.now().format(context),
+              text: decoded['message']?.toString() ?? '정산 요청이 도착했습니다.',
+              time: _formatMessageTime(decoded['sent_at']?.toString()),
               isMe: false,
               isSettlement: true,
               settlement: SettlementMessage.fromJson(settlementJson),
@@ -771,6 +789,19 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           : roomSettlements;
 
       setState(() {
+        final settlementMessageIds = displaySettlements
+            .map((item) {
+              final map = Map<String, dynamic>.from(item as Map);
+              return 'settlement_${map['id']}';
+            })
+            .toSet();
+
+        _messages.removeWhere(
+          (message) =>
+              message.isSettlement &&
+              settlementMessageIds.contains(message.id),
+        );
+
         for (final item in displaySettlements) {
           final map = Map<String, dynamic>.from(item as Map);
 
