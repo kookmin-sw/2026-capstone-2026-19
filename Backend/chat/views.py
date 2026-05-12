@@ -174,6 +174,16 @@ class ChatRoomLeaveView(APIView):
                 {"detail": "리더는 채팅방을 나갈 수 없습니다. 모집 완료 또는 핀 삭제 기능을 이용해주세요."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+            
+        if trip.status in [
+            Trip.StatusChoices.FULL,
+            Trip.StatusChoices.CLOSED,
+            Trip.StatusChoices.COMPLETED,
+        ]:
+            return Response(
+                {"detail": "모집이 완료된 이후에는 채팅방을 나갈 수 없습니다."},
+                status=status.HTTP_409_CONFLICT,
+            )
 
         if Settlement.objects.filter(trip=trip).exists():
             return Response(
@@ -209,6 +219,56 @@ class ChatRoomLeaveView(APIView):
             if trip.status == Trip.StatusChoices.FULL and joined_count < trip.capacity:
                 trip.status = Trip.StatusChoices.OPEN
                 trip.save(update_fields=["status"])
+
+            system_text = f"@{user.username} 님이 퇴장하였습니다."
+
+            system_message = ChatMessage.objects.create(
+                room=room,
+                sender_user=user,
+                message=system_text,
+                message_type=ChatMessage.MessageTypeChoices.SYSTEM,
+            )
+
+            channel_layer = get_channel_layer()
+
+            if channel_layer:
+                async_to_sync(channel_layer.group_send)(
+                    f"chat_{room.id}",
+                    {
+                        "type": "broadcast_message",
+                        "message_type": "system_message",
+                        "message": system_text,
+                        "sender": user.username,
+                        "sender_user_id": user.id,
+                        "message_id": system_message.id,
+                        "sent_at": system_message.sent_at.isoformat(),
+                    },
+                )
+
+                user_ids = set()
+
+                if trip.leader_user_id:
+                    user_ids.add(trip.leader_user_id)
+
+                joined_user_ids = trip.trip_participants.filter(
+                    status=TripParticipant.StatusChoices.JOINED,
+                ).values_list("user_id", flat=True)
+
+                user_ids.update(joined_user_ids)
+
+                for user_id in user_ids:
+                    async_to_sync(channel_layer.group_send)(
+                        f"user_{user_id}",
+                        {
+                            "type": "chat_room_updated",
+                            "room_id": room.id,
+                            "last_message": system_text,
+                            "message_type": "SYSTEM",
+                            "sender": user.username,
+                            "sender_user_id": user.id,
+                            "sent_at": system_message.sent_at.isoformat(),
+                        },
+                    )
 
         return Response(
             {
@@ -329,6 +389,38 @@ class ChatImageMessageCreateView(APIView):
             except Exception:
                 logger.exception(
                     "Chat image broadcast failed. room_id=%s, trip_id=%s, message_id=%s",
+                    room.id,
+                    room.trip_id,
+                    data.get("id"),
+                )
+            try:
+                user_ids = set()
+
+                if room.trip.leader_user_id:
+                    user_ids.add(room.trip.leader_user_id)
+
+                joined_user_ids = room.trip.trip_participants.filter(
+                    status=TripParticipant.StatusChoices.JOINED,
+                ).values_list("user_id", flat=True)
+
+                user_ids.update(joined_user_ids)
+
+                for user_id in user_ids:
+                    async_to_sync(channel_layer.group_send)(
+                        f"user_{user_id}",
+                        {
+                            "type": "chat_room_updated",
+                            "room_id": room.id,
+                            "last_message": "사진을 보냈습니다.",
+                            "message_type": "IMAGE",
+                            "sender": user.username,
+                            "sender_user_id": user.id,
+                            "sent_at": str(data.get("sent_at")) if data.get("sent_at") else None,
+                        },
+                    )
+            except Exception:
+                logger.exception(
+                    "Chat image notification failed. room_id=%s, trip_id=%s, message_id=%s",
                     room.id,
                     room.trip_id,
                     data.get("id"),

@@ -331,6 +331,37 @@ class TripService {
         }
       }
 
+      // 10. 일반 멤버 매칭 참여 취소 (LEFT 처리)
+      static Future<Map<String, dynamic>> leaveTrip({
+        required String token,
+        required int tripId,
+      }) async {
+        try {
+          final response = await http.post(
+            Uri.parse('$tripApiUrl/$tripId/leave/'),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Token $token',
+            },
+          );
+
+          Map<String, dynamic> data = {};
+          if (response.body.isNotEmpty) {
+            data = jsonDecode(utf8.decode(response.bodyBytes));
+          }
+
+          if (response.statusCode == 200) {
+            notifyTripsChanged();
+            notifyChatRoomsChanged();
+            return {'success': true, 'message': data['detail'] ?? '참여 취소 완료'};
+          }
+
+          return {'success': false, 'message': data['detail'] ?? data['message'] ?? '참여 취소 실패'};
+        } catch (e) {
+          return {'success': false, 'message': '서버 연결 오류: $e'};
+        }
+      }
+
       // 9. (선택) 정산 요청 보내기 - 이미지 첨부가 있으므로 MultipartRequest 사용
       static Future<Map<String, dynamic>> requestSettlement({
         required String token,

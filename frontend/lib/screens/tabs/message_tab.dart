@@ -35,11 +35,22 @@ class ChatRoomModel {
   });
 
   factory ChatRoomModel.fromJson(Map<String, dynamic> json) {
+    final dynamic rawLastMessage = json['last_message'];
+
+    final String displayLastMessage;
+    if (rawLastMessage == null) {
+      displayLastMessage = "채팅방이 생성되었습니다.";
+    } else if (rawLastMessage.toString().trim().isEmpty) {
+      displayLastMessage = "사진을 보냈습니다.";
+    } else {
+      displayLastMessage = rawLastMessage.toString();
+    }
+
     return ChatRoomModel(
       id: json['id'],
       tripId: json['trip_id'],
       name: json['trip_title'] ?? "새 채팅방",
-      lastMessage: json['last_message'] ?? "채팅방이 생성되었습니다.",
+      lastMessage: displayLastMessage,
       time: _formatDate(json['created_at'] ?? ""),
       unreadCount: json['unread_count'] ?? 0,
       pinnedNotice: json['pinned_notice'] ?? "만날 위치를 공유해주세요",
@@ -47,21 +58,37 @@ class ChatRoomModel {
     );
   }
 
-  static String _formatDate(String dateStr) {
-    if (dateStr.isEmpty) return "";
-    try {
-      final DateTime dt = DateTime.parse(dateStr).toLocal();
-      return "${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
-    } catch (e) {
-      return dateStr;
+    static String _formatDate(String dateStr) {
+      if (dateStr.isEmpty) return "";
+      try {
+        final DateTime dt = DateTime.parse(dateStr).toLocal();
+        return "${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
+      } catch (e) {
+        return dateStr;
+      }
     }
+  }
+
+class NoComposingUnderlineController extends TextEditingController {
+  NoComposingUnderlineController();
+
+  @override
+  TextSpan buildTextSpan({
+    required BuildContext context,
+    TextStyle? style,
+    required bool withComposing,
+  }) {
+    return TextSpan(
+      style: style,
+      text: text,
+    );
   }
 }
 
 // ── 메시지 모델 ──────────────────────────────────
 class _Message {
   final String id, text, time, userId;
-  final bool isMe, isLink, isSettlement;
+  final bool isMe, isLink, isSettlement, isSystem;
   final SettlementMessage? settlement;
   final File? imageFile;
   final String? imageUrl;
@@ -74,6 +101,7 @@ class _Message {
     required this.isMe,
     this.isLink = false,
     this.isSettlement = false,
+    this.isSystem = false,
     this.settlement,
     this.imageFile,
     this.imageUrl,
@@ -150,13 +178,17 @@ class MessageTab extends StatefulWidget {
 class _MessageTabState extends State<MessageTab> {
   List<ChatRoomModel> _serverRooms = [];
   bool _isLoading = true;
+  bool _isFetchingChatRooms = false;
+  WebSocketChannel? _notificationChannel;
+  static final Set<int> _roomsWithNewMessage = <int>{};
+  static int? _openedRoomId;
 
   // 🌟 실제 로그인 환경에서는 이 닉네임을 전역 상태(UserProvider 등)에서 가져와야 합니다.
   // 현재는 TripService의 토큰 흐름에 맞춰 상수로 두거나 생성 시 받아와야 합니다.
   String get _currentUsername => AuthSession.username ?? '';
 
   void _onChatRoomsChanged() {
-    _fetchChatRooms();
+    _fetchChatRooms(showLoading: false);
   }
 
   @override
@@ -165,28 +197,96 @@ class _MessageTabState extends State<MessageTab> {
     _fetchChatRooms();
 
     TripService.chatRoomsRefreshNotifier.addListener(_onChatRoomsChanged);
+    _connectNotificationWebSocket();
   }
 
   @override
   void dispose() {
+    _notificationChannel?.sink.close();
     TripService.chatRoomsRefreshNotifier.removeListener(_onChatRoomsChanged);
     super.dispose();
   }
 
-  Future<void> _fetchChatRooms() async {
-    if (!mounted) return;
-    setState(() => _isLoading = true);
+  Future<void> _fetchChatRooms({bool showLoading = true}) async {
+    if (!mounted || _isFetchingChatRooms) return;
 
-    final List<dynamic> data = await TripService.getChatRooms(
-      token: AuthSession.token ?? '', // 실제 연동시 UserToken 입력
-    );
+    _isFetchingChatRooms = true;
 
-    if (mounted) {
+    if (showLoading) {
+      setState(() => _isLoading = true);
+    }
+
+    try {
+      final List<dynamic> data = await TripService.getChatRooms(
+        token: AuthSession.token ?? '',
+      );
+
+      if (!mounted) return;
+
       setState(() {
         _serverRooms = data.map((item) => ChatRoomModel.fromJson(item)).toList();
         _isLoading = false;
       });
+    } catch (e) {
+      print('채팅방 목록 불러오기 실패: $e');
+
+      if (mounted && showLoading) {
+        setState(() => _isLoading = false);
+      }
+    } finally {
+      _isFetchingChatRooms = false;
     }
+  }
+
+  void _connectNotificationWebSocket() {
+    final token = AuthSession.token;
+
+    if (token == null || token.isEmpty) {
+      return;
+    }
+
+    final encodedToken = Uri.encodeComponent(token);
+    final wsUrl = Uri.parse(
+      '${AppConfig.wsBaseUrl}/ws/notifications/?token=$encodedToken',
+    );
+
+    _notificationChannel = WebSocketChannel.connect(wsUrl);
+
+    _notificationChannel!.stream.listen(
+      (data) {
+        final decodedRaw = jsonDecode(data);
+
+        if (decodedRaw is! Map) {
+          return;
+        }
+
+        final decoded = Map<String, dynamic>.from(decodedRaw);
+        final eventType = decoded['type']?.toString();
+
+        if (eventType == 'chat_room_updated') {
+          final int? roomId = decoded['room_id'] is int
+              ? decoded['room_id'] as int
+              : int.tryParse(decoded['room_id']?.toString() ?? '');
+
+          final String sender = decoded['sender']?.toString() ?? '';
+          final bool isMine = sender.isNotEmpty && sender == _currentUsername;
+
+          if (!isMine && roomId != null && roomId != _openedRoomId && mounted) {
+            setState(() {
+              _roomsWithNewMessage.add(roomId);
+            });
+          }
+
+          _fetchChatRooms(showLoading: false);
+        }
+      },
+      onError: (error) {
+        print('채팅방 목록 알림 WebSocket 오류: $error');
+      },
+      onDone: () {
+        print('채팅방 목록 알림 WebSocket 종료');
+      },
+    );
   }
 
   @override
@@ -240,22 +340,40 @@ class _MessageTabState extends State<MessageTab> {
   }
 
   Widget _buildRoomTile(BuildContext context, ChatRoomModel room) {
+    final bool hasNewMessage =
+      _roomsWithNewMessage.contains(room.id) || room.unreadCount > 0;
     return InkWell(
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => ChatRoomScreen(
-            room: room,
-            myNickname: _currentUsername, // 🌟 더미가 아닌 현재 접속 유저 정보 전달
+      onTap: () async {
+        setState(() {
+          _roomsWithNewMessage.remove(room.id);
+        });
+
+        _openedRoomId = room.id;
+
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ChatRoomScreen(
+              room: room,
+              myNickname: _currentUsername,
+            ),
           ),
-        ),
-      ),
+        );
+
+        _openedRoomId = null;
+
+        if (!mounted) return;
+        setState(() {
+          _roomsWithNewMessage.remove(room.id);
+        });
+        await _fetchChatRooms(showLoading: false);
+      },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: AppColors.border))),
         child: Row(
           children: [
-            _buildAvatar(room.unreadCount > 0),
+            _buildAvatar(hasNewMessage),
             const SizedBox(width: 14),
             Expanded(
               child: Column(
@@ -270,7 +388,7 @@ class _MessageTabState extends State<MessageTab> {
                 ],
               ),
             ),
-            if (room.unreadCount > 0) _buildUnreadBadge(room.unreadCount),
+            if (hasNewMessage) _buildNewBadge(),
           ],
         ),
       ),
@@ -289,12 +407,24 @@ class _MessageTabState extends State<MessageTab> {
     ]);
   }
 
-  Widget _buildUnreadBadge(int count) {
+  Widget _buildNewBadge() {
     return Container(
       margin: const EdgeInsets.only(left: 8),
-      width: 20, height: 20,
-      decoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
-      child: Center(child: Text('$count', style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700))),
+      width: 22,
+      height: 22,
+      alignment: Alignment.center,
+      decoration: const BoxDecoration(
+        color: Colors.red,
+        shape: BoxShape.circle,
+      ),
+      child: const Text(
+        'N',
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
     );
   }
 }
@@ -327,7 +457,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
         .where((message) => !(message.isSettlement && message.settlement != null))
         .toList();
   }
-  final TextEditingController _inputCtrl = TextEditingController();
+  final TextEditingController _inputCtrl = NoComposingUnderlineController();
   final ScrollController _scrollCtrl = ScrollController();
   // 테스트용 리더 토큰. 실제 배포에서는 로그인 후 저장된 토큰을 사용해야 함.
   //static const String _settlementToken = AuthSession.token ?? '';
@@ -424,6 +554,21 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           return;
         }
 
+        if (messageType == 'system_message') {
+          _messages.add(
+            _Message(
+              id: 'msg_${decoded['message_id'] ?? DateTime.now().millisecondsSinceEpoch}',
+              userId: 'system',
+              text: decoded['message']?.toString() ?? '',
+              time: _formatMessageTime(decoded['sent_at']?.toString()),
+              isMe: false,
+              isSystem: true,
+            ),
+          );
+
+          return;
+        }
+
         if (messageType == 'image_message') {
           _messages.add(
             _Message(
@@ -446,12 +591,22 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
               ? Map<String, dynamic>.from(settlementRaw)
               : decoded;
 
+          final rawSettlementId = settlementJson['id'];
+          final settlementId = int.tryParse(rawSettlementId?.toString() ?? '');
+          final messageId = settlementId != null
+              ? 'settlement_$settlementId'
+              : 'settlement_${decoded['message_id'] ?? DateTime.now().millisecondsSinceEpoch}';
+
+          _messages.removeWhere(
+            (message) => message.isSettlement && message.id == messageId,
+          );
+
           _messages.add(
             _Message(
-              id: DateTime.now().millisecondsSinceEpoch.toString(),
+              id: messageId,
               userId: decoded['sender']?.toString() ?? 'system',
-              text: '정산 요청이 도착했습니다.',
-              time: TimeOfDay.now().format(context),
+              text: decoded['message']?.toString() ?? '정산 요청이 도착했습니다.',
+              time: _formatMessageTime(decoded['sent_at']?.toString()),
               isMe: false,
               isSettlement: true,
               settlement: SettlementMessage.fromJson(settlementJson),
@@ -578,6 +733,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
         final senderUsername = map['sender_username']?.toString() ?? '';
         final senderUserId = map['sender_user_id']?.toString() ?? '';
+        final messageType = map['message_type']?.toString() ?? '';
 
         return _Message(
           id: 'msg_${map['id']}',
@@ -585,7 +741,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           text: map['message']?.toString() ?? '',
           time: _formatMessageTime(map['sent_at']?.toString()),
           isMe: senderUsername == widget.myNickname,
-          imageUrl: map['message_type'] == 'IMAGE'
+          isSystem: messageType == 'SYSTEM',
+          imageUrl: messageType == 'IMAGE'
             ? _normalizeImageUrl(map['image_url'])
             : null,
         );
@@ -632,6 +789,19 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           : roomSettlements;
 
       setState(() {
+        final settlementMessageIds = displaySettlements
+            .map((item) {
+              final map = Map<String, dynamic>.from(item as Map);
+              return 'settlement_${map['id']}';
+            })
+            .toSet();
+
+        _messages.removeWhere(
+          (message) =>
+              message.isSettlement &&
+              settlementMessageIds.contains(message.id),
+        );
+
         for (final item in displaySettlements) {
           final map = Map<String, dynamic>.from(item as Map);
 
@@ -826,9 +996,35 @@ void _scrollToBottomAfterLayout({bool jump = false, bool force = false}) {
     );
   }
 
+  Widget _buildSystemMessage(String text) {
+    return Center(
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: const Color(0xFFEFEFEF),
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Text(
+          text,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            fontSize: 11,
+            color: AppColors.gray,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildMessageBubble(_Message msg) {
     if (msg.isSettlement && msg.settlement != null) {
       return _buildSettlementRequestCard(msg.settlement!);
+    }
+
+    if (msg.isSystem) {
+      return _buildSystemMessage(msg.text);
     }
 
     if (msg.imageFile != null || (msg.imageUrl != null && msg.imageUrl!.isNotEmpty)) {
@@ -1859,7 +2055,7 @@ void _scrollToBottomAfterLayout({bool jump = false, bool force = false}) {
 
                   Expanded(
                     child: Container(
-                      height: 40,
+                      height: 42,
                       padding: const EdgeInsets.symmetric(horizontal: 14),
                       decoration: BoxDecoration(
                         color: const Color(0xFFF4F4F2),
@@ -1877,11 +2073,6 @@ void _scrollToBottomAfterLayout({bool jump = false, bool force = false}) {
                             height: 1.2,
                             color: AppColors.secondary,
                           ),
-                          strutStyle: const StrutStyle(
-                            fontSize: 14,
-                            height: 1.2,
-                            forceStrutHeight: true,
-                          ),
                           decoration: const InputDecoration(
                             hintText: '메시지 입력...',
                             hintStyle: TextStyle(
@@ -1891,8 +2082,7 @@ void _scrollToBottomAfterLayout({bool jump = false, bool force = false}) {
                             ),
                             border: InputBorder.none,
                             isDense: true,
-                            isCollapsed: true,
-                            contentPadding: EdgeInsets.zero,
+                            contentPadding: const EdgeInsets.only(top: 8, bottom: 6),
                           ),
                           onSubmitted: (_) => _sendMessage(),
                         ),

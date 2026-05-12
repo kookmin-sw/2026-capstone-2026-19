@@ -64,6 +64,68 @@ class ChatConsumer(AsyncWebsocketConsumer):
             "message": chat_message.message,
             "sent_at": chat_message.sent_at.isoformat(),
         }
+        
+    @sync_to_async
+    def _save_system_message(self, message):
+        if not self.user.is_authenticated:
+            return None
+
+        room = ChatRoom.objects.get(id=self.room_id)
+
+        chat_message = ChatMessage.objects.create(
+            room=room,
+            sender_user=self.user,
+            message=message,
+            message_type=ChatMessage.MessageTypeChoices.SYSTEM,
+        )
+
+        return {
+            "id": chat_message.id,
+            "sender_user_id": self.user.id,
+            "sender": self.user.username,
+            "message": chat_message.message,
+            "sent_at": chat_message.sent_at.isoformat(),
+        }
+
+    @sync_to_async
+    def _get_room_notification_user_ids(self):
+        try:
+            room = ChatRoom.objects.select_related("trip").get(id=self.room_id)
+        except ChatRoom.DoesNotExist:
+            return []
+
+        user_ids = set()
+
+        if room.trip.leader_user_id:
+            user_ids.add(room.trip.leader_user_id)
+
+        joined_user_ids = room.trip.trip_participants.filter(
+            status="JOINED",
+        ).values_list("user_id", flat=True)
+
+        user_ids.update(joined_user_ids)
+
+        return list(user_ids)
+
+    async def _notify_chat_room_updated(self, saved_message):
+        if not saved_message:
+            return
+
+        user_ids = await self._get_room_notification_user_ids()
+
+        for user_id in user_ids:
+            await self.channel_layer.group_send(
+                f"user_{user_id}",
+                {
+                    "type": "chat_room_updated",
+                    "room_id": int(self.room_id),
+                    "last_message": saved_message.get("message", ""),
+                    "message_type": "TEXT",
+                    "sender": saved_message.get("sender", ""),
+                    "sender_user_id": saved_message.get("sender_user_id"),
+                    "sent_at": saved_message.get("sent_at"),
+                },
+            )
 
     async def receive(self, text_data):
         data = json.loads(text_data)
@@ -77,6 +139,9 @@ class ChatConsumer(AsyncWebsocketConsumer):
         )
 
         if message_type == "settlement_request":
+            settlement_message = data.get("message", "정산 요청이 도착했습니다.")
+            saved_message = await self._save_system_message(settlement_message)
+
             await self.channel_layer.group_send(
                 self.room_group_name,
                 {
@@ -85,12 +150,34 @@ class ChatConsumer(AsyncWebsocketConsumer):
                     "sender": sender,
                     "sender_user_id": self.user.id if self.user.is_authenticated else None,
                     "settlement": data.get("settlement"),
-                    "message": data.get("message", "정산 요청이 도착했습니다."),
+                    "message": settlement_message,
+                    "message_id": saved_message["id"] if saved_message else None,
+                    "sent_at": saved_message["sent_at"] if saved_message else None,
                 },
             )
+
+            user_ids = await self._get_room_notification_user_ids()
+
+            for user_id in user_ids:
+                await self.channel_layer.group_send(
+                    f"user_{user_id}",
+                    {
+                        "type": "chat_room_updated",
+                        "room_id": int(self.room_id),
+                        "last_message": settlement_message,
+                        "message_type": "SETTLEMENT_REQUEST",
+                        "sender": sender,
+                        "sender_user_id": self.user.id if self.user.is_authenticated else None,
+                        "sent_at": saved_message["sent_at"] if saved_message else None,
+                    },
+                )
+
             return
         
         if message_type == "settlement_completed":
+            completed_message = data.get("message", "정산이 완료되었습니다.")
+            saved_message = await self._save_system_message(completed_message)
+
             await self.channel_layer.group_send(
                 self.room_group_name,
                 {
@@ -98,11 +185,30 @@ class ChatConsumer(AsyncWebsocketConsumer):
                     "message_type": "settlement_completed",
                     "sender": sender,
                     "sender_user_id": self.user.id if self.user.is_authenticated else None,
-                    "message": data.get("message", "정산이 완료되었습니다."),
+                    "message": completed_message,
+                    "message_id": saved_message["id"] if saved_message else None,
+                    "sent_at": saved_message["sent_at"] if saved_message else None,
                     "pinned_notice": data.get("pinned_notice"),
                     "expires_at": data.get("expires_at"),
                 },
             )
+
+            user_ids = await self._get_room_notification_user_ids()
+
+            for user_id in user_ids:
+                await self.channel_layer.group_send(
+                    f"user_{user_id}",
+                    {
+                        "type": "chat_room_updated",
+                        "room_id": int(self.room_id),
+                        "last_message": completed_message,
+                        "message_type": "SETTLEMENT_COMPLETED",
+                        "sender": sender,
+                        "sender_user_id": self.user.id if self.user.is_authenticated else None,
+                        "sent_at": saved_message["sent_at"] if saved_message else None,
+                    },
+                )
+
             return
 
         message = data.get("message", "")
@@ -118,8 +224,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 "sender_user_id": self.user.id if self.user.is_authenticated else None,
                 "message_id": saved_message["id"] if saved_message else None,
                 "sent_at": saved_message["sent_at"] if saved_message else None,
+                
             },
         )
+        await self._notify_chat_room_updated(saved_message)
 
     async def broadcast_message(self, event):
         await self.send(
@@ -135,6 +243,60 @@ class ChatConsumer(AsyncWebsocketConsumer):
                     "image_url": event.get("image_url"),
                     "pinned_notice": event.get("pinned_notice"),
                     "expires_at": event.get("expires_at"),
+                },
+                ensure_ascii=False,
+            )
+        )
+
+class NotificationConsumer(AsyncWebsocketConsumer):
+    async def connect(self):
+        self.user = await self._get_user_from_query_token()
+
+        if not self.user.is_authenticated:
+            await self.close()
+            return
+
+        self.user_group_name = f"user_{self.user.id}"
+
+        await self.channel_layer.group_add(
+            self.user_group_name,
+            self.channel_name,
+        )
+
+        await self.accept()
+
+    async def disconnect(self, close_code):
+        if hasattr(self, "user_group_name"):
+            await self.channel_layer.group_discard(
+                self.user_group_name,
+                self.channel_name,
+            )
+
+    @sync_to_async
+    def _get_user_from_query_token(self):
+        query_string = self.scope.get("query_string", b"").decode("utf-8")
+        query_params = parse_qs(query_string)
+        token_key = query_params.get("token", [""])[0]
+
+        if not token_key:
+            return AnonymousUser()
+
+        try:
+            return Token.objects.select_related("user").get(key=token_key).user
+        except Token.DoesNotExist:
+            return AnonymousUser()
+
+    async def chat_room_updated(self, event):
+        await self.send(
+            text_data=json.dumps(
+                {
+                    "type": "chat_room_updated",
+                    "room_id": event.get("room_id"),
+                    "last_message": event.get("last_message", ""),
+                    "message_type": event.get("message_type", "TEXT"),
+                    "sender": event.get("sender", ""),
+                    "sender_user_id": event.get("sender_user_id"),
+                    "sent_at": event.get("sent_at"),
                 },
                 ensure_ascii=False,
             )

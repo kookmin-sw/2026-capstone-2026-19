@@ -28,6 +28,7 @@ class ChatMessage(models.Model):
     class MessageTypeChoices(models.TextChoices):
         TEXT = "TEXT", "TEXT"
         IMAGE = "IMAGE", "IMAGE"
+        SYSTEM = "SYSTEM", "SYSTEM"
 
     room = models.ForeignKey(
         ChatRoom,

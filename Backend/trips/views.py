@@ -2,8 +2,13 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, permissions
 from django.db import transaction
+from django.utils import timezone
 from .models import Trip, TripParticipant
 from .serializers import TripSerializer
+from asgiref.sync import async_to_sync
+from channels.layers import get_channel_layer
+from chat.models import ChatRoom, ChatMessage
+from settlements.models import Settlement
 
 
 class TripCreateListView(APIView):
@@ -20,6 +25,13 @@ class TripCreateListView(APIView):
     def post(self, request):
         data = request.data
         flutter_seat = data.get('seat_position')
+        kakaopay_link = (data.get("kakaopay_link") or "").strip()
+
+        if not kakaopay_link:
+            return Response(
+                {'message': '카카오페이 송금 링크는 필수입니다.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         # 1. 좌석 매핑 확인
         valid_seats = [choice[0] for choice in TripParticipant.SeatChoices.choices]
@@ -46,19 +58,16 @@ class TripCreateListView(APIView):
                         status=TripParticipant.StatusChoices.JOINED
                     )
 
-                    kakaopay_link = data.get("kakaopay_link")
+                    from settlements.models import PaymentChannel
 
-                    if kakaopay_link:
-                        from settlements.models import PaymentChannel
-
-                        PaymentChannel.objects.update_or_create(
-                            trip=trip,
-                            defaults={
-                                "provider": "KAKAOPAY",
-                                "kakaopay_link": kakaopay_link,
-                                "updated_by": request.user,
-                            },
-                        )
+                    PaymentChannel.objects.update_or_create(
+                        trip=trip,
+                        defaults={
+                            "provider": "KAKAOPAY",
+                            "kakaopay_link": kakaopay_link,
+                            "updated_by": request.user,
+                        },
+                    )
 
                     return Response(serializer.data, status=status.HTTP_201_CREATED)
                 return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -93,8 +102,13 @@ class TripJoinView(APIView):
         if current_joined_count >= trip.capacity:
             return Response({"message": "정원이 모두 찼습니다."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 3. 이미 참여 중인지 확인
-        if TripParticipant.objects.filter(trip=trip, user=request.user).exists():
+        # 3. 이미 참여 중인지 확인 (LEFT/KICKED 이력은 재참여 허용)
+        existing_joined = TripParticipant.objects.filter(
+            trip=trip,
+            user=request.user,
+            status=TripParticipant.StatusChoices.JOINED
+        ).first()
+        if existing_joined:
             return Response({"message": "이미 참여 중인 팀입니다."}, status=status.HTTP_400_BAD_REQUEST)
 
         # 4. 좌석 매핑 및 중복 검사
@@ -110,19 +124,85 @@ class TripJoinView(APIView):
         # 5. 트랜잭션으로 참여자 등록
         try:
             with transaction.atomic():
-                # 참여자 등록 (일반 탑승객: PASSENGER)
-                TripParticipant.objects.create(
+                existing_participant = TripParticipant.objects.filter(
                     trip=trip,
                     user=request.user,
-                    role=TripParticipant.RoleChoices.MEMBER,  # 일반 탑승객 역할
-                    seat_position=django_seat,
-                    status=TripParticipant.StatusChoices.JOINED  # 가입 완료 상태
-                )
+                ).first()
 
-                # 만약 방금 내가 들어가서 정원이 다 찼다면, 핀 상태를 마감(CLOSED)으로 변경
+                if existing_participant:
+                    existing_participant.role = TripParticipant.RoleChoices.MEMBER
+                    existing_participant.seat_position = django_seat
+                    existing_participant.status = TripParticipant.StatusChoices.JOINED
+                    existing_participant.left_at = None
+                    existing_participant.save(
+                        update_fields=["role", "seat_position", "status", "left_at"]
+                    )
+                else:
+                    TripParticipant.objects.create(
+                        trip=trip,
+                        user=request.user,
+                        role=TripParticipant.RoleChoices.MEMBER,
+                        seat_position=django_seat,
+                        status=TripParticipant.StatusChoices.JOINED,
+                    )
+
+                room = ChatRoom.objects.filter(trip=trip).first()
+
+                if room:
+                    system_text = f"@{request.user.username} 님이 참여하였습니다."
+
+                    system_message = ChatMessage.objects.create(
+                        room=room,
+                        sender_user=request.user,
+                        message=system_text,
+                        message_type=ChatMessage.MessageTypeChoices.SYSTEM,
+                    )
+
+                    channel_layer = get_channel_layer()
+
+                    if channel_layer:
+                        async_to_sync(channel_layer.group_send)(
+                            f"chat_{room.id}",
+                            {
+                                "type": "broadcast_message",
+                                "message_type": "system_message",
+                                "message": system_text,
+                                "sender": request.user.username,
+                                "sender_user_id": request.user.id,
+                                "message_id": system_message.id,
+                                "sent_at": system_message.sent_at.isoformat(),
+                            },
+                        )
+
+                        user_ids = set()
+
+                        if trip.leader_user_id:
+                            user_ids.add(trip.leader_user_id)
+
+                        joined_user_ids = trip.trip_participants.filter(
+                            status=TripParticipant.StatusChoices.JOINED,
+                        ).values_list("user_id", flat=True)
+
+                        user_ids.update(joined_user_ids)
+
+                        for user_id in user_ids:
+                            async_to_sync(channel_layer.group_send)(
+                                f"user_{user_id}",
+                                {
+                                    "type": "chat_room_updated",
+                                    "room_id": room.id,
+                                    "last_message": system_text,
+                                    "message_type": "SYSTEM",
+                                    "sender": request.user.username,
+                                    "sender_user_id": request.user.id,
+                                    "sent_at": system_message.sent_at.isoformat(),
+                                },
+                            )
+
+                # 정원이 다 찼다면 모집 완료(FULL)로 변경
                 if (current_joined_count + 1) >= trip.capacity:
-                    trip.status = Trip.StatusChoices.CLOSED
-                    trip.save()
+                    trip.status = Trip.StatusChoices.FULL
+                    trip.save(update_fields=["status"])
 
             return Response({"success": True, "message": "참여가 완료되었습니다."}, status=status.HTTP_200_OK)
 
@@ -186,3 +266,65 @@ class TripStatusUpdateView(APIView):
         trip.delete()
         # 성공 시 204 No Content 반환 (service.dart에서 이 코드를 기다림)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class TripLeaveView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk):
+        user = request.user
+        try:
+            trip = Trip.objects.get(pk=pk)
+        except Trip.DoesNotExist:
+            return Response({"detail": "존재하지 않는 핀입니다."}, status=status.HTTP_404_NOT_FOUND)
+
+        if trip.leader_user_id == user.id:
+            return Response(
+                {"detail": "방장은 참여 취소할 수 없습니다. 핀 삭제 또는 모집 완료를 이용해주세요."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if Settlement.objects.filter(trip=trip).exists():
+            return Response(
+                {"detail": "정산이 생성된 이후에는 참여 취소할 수 없습니다."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        try:
+            participant = TripParticipant.objects.get(
+                trip=trip,
+                user=user,
+                status=TripParticipant.StatusChoices.JOINED,
+            )
+        except TripParticipant.DoesNotExist:
+            return Response(
+                {"detail": "현재 참여 중인 매칭이 아닙니다."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        released_seat = participant.seat_position
+
+        with transaction.atomic():
+            participant.status = TripParticipant.StatusChoices.LEFT
+            participant.seat_position = None
+            participant.left_at = timezone.now()
+            participant.save(update_fields=["status", "seat_position", "left_at"])
+
+            joined_count = TripParticipant.objects.filter(
+                trip=trip,
+                status=TripParticipant.StatusChoices.JOINED,
+            ).count()
+
+            if joined_count < trip.capacity and trip.status in [Trip.StatusChoices.FULL, Trip.StatusChoices.CLOSED]:
+                trip.status = Trip.StatusChoices.OPEN
+                trip.save(update_fields=["status"])
+
+        return Response(
+            {
+                "detail": "매칭 참여가 취소되었습니다.",
+                "trip_id": trip.id,
+                "participant_status": participant.status,
+                "released_seat": released_seat,
+            },
+            status=status.HTTP_200_OK,
+        )
