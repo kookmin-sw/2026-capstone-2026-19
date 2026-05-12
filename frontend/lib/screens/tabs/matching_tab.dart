@@ -8,6 +8,7 @@ import 'active_tab.dart';
 import '../../service/trip_service.dart';
 import 'message_tab.dart';
 import 'dart:async';
+import '../../service/notification_service.dart';
 
 class MatchingTab extends StatefulWidget {
   final VoidCallback? onGoHome;

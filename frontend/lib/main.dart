@@ -19,6 +19,10 @@ import 'utils/routes.dart';
 void main() async {
   // Flutter 엔진 초기화 (async main 사용 시 필수)
   WidgetsFlutterBinding.ensureInitialized();
+  await NotificationService.init();
+  await AuthSession.load();
+
+    runApp(const MyApp());
 
   // 카카오맵 SDK 초기화 (웹에서는 제외)
   if (!kIsWeb) {

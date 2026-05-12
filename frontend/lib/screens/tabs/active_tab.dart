@@ -10,6 +10,7 @@ import '../../utils/colors.dart';
 import '../../service/trip_service.dart';
 import '../../service/auth_session.dart';
 import 'message_tab.dart';
+import '../../service/notification_service.dart';
 
 // ============================================================
 // 열거형 & 모델
@@ -115,6 +116,17 @@ class ActiveRideState extends ChangeNotifier {
 
       _myPins = allPins.where((p) => p.isMine).toList();
       _waitingPins = allPins.where((p) => !p.isMine).toList();
+      final currentRide = activeRide; // 현재 진행중인 핀 가져오기
+            if (currentRide != null) {
+              // 이용 중인 택시가 있으면 알림 업데이트 및 고정
+              NotificationService.showOngoingRide(
+                title: '🚖 TaxiMate 이용 중',
+                body: '${currentRide.time} 출발 | ${currentRide.dept} → ${currentRide.dest}',
+              );
+            } else {
+              // 이용 중인 택시가 없거나 정산이 모두 끝났으면 알림 삭제
+              NotificationService.cancelOngoingRide();
+            }
     } catch (e) {
       debugPrint('이용 중 데이터 로드 실패: $e');
     } finally {
