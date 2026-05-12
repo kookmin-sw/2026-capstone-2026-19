@@ -1,6 +1,17 @@
 from django.urls import path
 # views.py에서 실제로 만든 4개의 클래스만 가져옵니다.
-from .views import SignupView, LoginView, SendCodeView, VerifyCodeView
+from .views import (
+    SignupView,
+    LoginView,
+    SendCodeView,
+    VerifyCodeView,
+    ProfileImageUpdateView,
+    TripHistoryView,
+    RecentCompanionsView,
+    WithdrawView,
+    UserProfileView,
+    LogoutView
+)
 from . import views
 
 urlpatterns = [
