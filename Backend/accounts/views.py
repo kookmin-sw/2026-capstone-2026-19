@@ -250,18 +250,21 @@ class TripHistoryView(APIView):
         for p in participants:
             trip = p.trip
             members_count = TripParticipant.objects.filter(trip=trip, status='JOINED').count()
-            my_fare = int(trip.estimated_fare / members_count) if members_count > 0 else 0
-            history_data.append({
-                "date": trip.depart_time.strftime("%Y.%m.%d"),
-                "status": trip.status,
-                "team": f"{trip.depart_name} -> {trip.arrive_name}",
-                "dept": trip.depart_name,
-                "dest": trip.arrive_name,
-                "members": members_count,
-                "total": trip.estimated_fare,
-                "my": my_fare,
-            })
-        return Response(history_data, status=status.HTTP_200_OK)
+            total_fare = trip.estimated_fare or 0
+                        my_fare = int(total_fare / members_count) if members_count > 0 else 0
+
+                        history_data.append({
+                            # 🟢 만약 depart_time도 None일까봐 여기도 안전장치 추가!
+                            "date": trip.depart_time.strftime("%Y.%m.%d") if trip.depart_time else "날짜 미정",
+                            "status": trip.status,
+                            "team": f"{trip.depart_name} -> {trip.arrive_name}",
+                            "dept": trip.depart_name,
+                            "dest": trip.arrive_name,
+                            "members": members_count,
+                            "total": total_fare,
+                            "my": my_fare,
+                        })
+                    return Response(history_data, status=status.HTTP_200_OK)
 
 
 class RecentCompanionsView(APIView):

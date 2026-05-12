@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../config/app_config.dart';
 import 'auth_session.dart';
-
+import 'dart:io';
 class AuthService {
 
   // 에뮬레이터 기준 localhost 주소. 실기기 테스트 시 192.168.x.x (PC의 IP)로 변경해야 합니다.
@@ -213,7 +213,7 @@ class AuthService {
     }
 
   // 6. 프로필 이미지 업데이트
-  import 'dart:io'; // File 타입을 사용하기 위해 상단에 추가해야 합니다.
+
 
     // 6. 프로필 이미지 업데이트 API (채팅방 파일 전송 방식 적용)
     static Future<Map<String, dynamic>> updateProfileImage(File imageFile) async {
@@ -418,5 +418,26 @@ class AuthService {
         throw Exception('동승자 내역 조회 실패: ${response.statusCode}');
       }
     }
+    static Future<Map<String, dynamic>> getProfile() async {
+        try {
+          final token = AuthSession.token; // 저장된 토큰 가져오기
+          if (token == null) return {'success': false, 'message': '로그인이 필요합니다.'};
+
+          final response = await http.get(
+            Uri.parse('$baseUrl/profile/'), // 백엔드 프로필 엔드포인트
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Token $token', // 토큰 인증
+            },
+          );
+
+          if (response.statusCode == 200) {
+            return jsonDecode(utf8.decode(response.bodyBytes));
+          }
+          return {'success': false, 'message': '프로필 로딩 실패'};
+        } catch (e) {
+          return {'success': false, 'message': '서버 연결 오류'};
+        }
+      }
 }
 

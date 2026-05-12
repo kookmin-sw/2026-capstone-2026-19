@@ -129,20 +129,23 @@ class _MyPageTabState extends State<MyPageTab> {
   Future<void> _pickImage(ImageSource source) async {
       try {
         final XFile? picked = await _picker.pickImage(
-          source: source, imageQuality: 80, maxWidth: 512, maxHeight: 512,
+          source: source,
+          imageQuality: 80,
+          maxWidth: 512,
+          maxHeight: 512,
         );
         if (picked != null) {
           setState(() => _profileImage = File(picked.path));
 
           try {
-            // 🟢 진짜 프로필 사진 업로드 API 호출!
+            // 진짜 API 호출
             final result = await AuthService.updateProfileImage(File(picked.path));
 
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(content: Text(result['message'])),
               );
-              // 업로드 성공 후 프로필 정보를 다시 불러와서 화면 새로고침
+
               if (result['success']) {
                 setState(() {
                   _profileFuture = AuthService.getProfile();
@@ -158,24 +161,16 @@ class _MyPageTabState extends State<MyPageTab> {
           }
         }
       } catch (e) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('프로필 업데이트 실패: $e')),
-            );
-          }
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('사진을 불러올 수 없습니다. 권한을 확인해 주세요.'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
         }
       }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('사진을 불러올 수 없습니다. 권한을 확인해 주세요.'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
     }
-  }
 
   @override
     Widget build(BuildContext context) {
@@ -1146,7 +1141,7 @@ class _ReportScreenState extends State<_ReportScreen> {
     }
 
   Future<void> _submitReport(String reportedUserId, String tripId) async {
-      // 🟢 진짜 유저 신고 API 호출!
+
       final result = await AuthService.reportUser(
         targetId: reportedUserId,
         tripId: tripId, // 현재 UI에는 tripId가 안 넘어오고 있으니 UI수정이 조금 필요할 수 있습니다.
