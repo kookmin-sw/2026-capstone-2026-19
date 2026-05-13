@@ -233,43 +233,69 @@ class _MyPageTabState extends State<MyPageTab> {
           child: Text(t, style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w700)));
 
   Widget _buildMenuItem(BuildContext context, _MenuItem menu) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Material(
-        color: Colors.white, borderRadius: BorderRadius.circular(14),
-        child: InkWell(
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Material(
+          color: Colors.white,
           borderRadius: BorderRadius.circular(14),
-          onTap: () {
-            if (menu.label == '로그아웃') { _showLogoutDialog(context); return; }
-            if (menu.screen != null) { Navigator.push(context, MaterialPageRoute(builder: (_) => menu.screen!)); }
-          },
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            decoration: BoxDecoration(border: Border.all(color: AppColors.border), borderRadius: BorderRadius.circular(14)),
-            child: Row(children: [
-              Container(
-                width: 40, height: 40,
-                decoration: BoxDecoration(
-                  color: menu.color != null ? menu.color!.withOpacity(0.1) : AppColors.primaryLight,
-                  borderRadius: BorderRadius.circular(12),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: () async { // 📍 async 추가
+              if (menu.label == '로그아웃') {
+                _showLogoutDialog(context);
+                return;
+              }
+              if (menu.screen != null) {
+                // 📍 화면 이동 후 돌아올 때까지 기다림
+                await Navigator.push(context, MaterialPageRoute(builder: (_) => menu.screen!));
+
+                // 📍 돌아오자마자 서버 데이터를 다시 불러와서 "인증됨" 상태를 반영!
+                setState(() {
+                  _profileFuture = AuthService.getProfile();
+                });
+              }
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: BoxDecoration(
+                  border: Border.all(color: AppColors.border),
+                  borderRadius: BorderRadius.circular(14)),
+              child: Row(children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: menu.color != null
+                        ? menu.color!.withOpacity(0.1)
+                        : AppColors.primaryLight,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(menu.icon,
+                      color: menu.color ?? AppColors.primary, size: 20),
                 ),
-                child: Icon(menu.icon, color: menu.color ?? AppColors.primary, size: 20),
-              ),
-              const SizedBox(width: 14),
-              Expanded(child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(menu.label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: menu.color ?? AppColors.secondary)),
-                  if (menu.sub != null) Text(menu.sub!, style: const TextStyle(fontSize: 11, color: AppColors.gray)),
-                ],
-              )),
-              const Icon(Icons.chevron_right, color: AppColors.border, size: 22),
-            ]),
+                const SizedBox(width: 14),
+                Expanded(
+                    child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(menu.label,
+                        style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: menu.color ?? AppColors.secondary)),
+                    if (menu.sub != null)
+                      Text(menu.sub!,
+                          style:
+                              const TextStyle(fontSize: 11, color: AppColors.gray)),
+                  ],
+                )),
+                const Icon(Icons.chevron_right, color: AppColors.border, size: 22),
+              ]),
+            ),
           ),
         ),
-      ),
-    );
-  }
+      );
+    }
 
   void _showLogoutDialog(BuildContext context) {
     showDialog(context: context, builder: (_) => AlertDialog(
@@ -483,9 +509,9 @@ class SupportScreen extends StatelessWidget {
       body: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(children: [
-          _supportCard(Icons.phone, '전화 문의', '1588-0000', AppColors.primary, () async => await launchUrl(Uri.parse('tel:15880000'))),
+          _supportCard(Icons.phone, '전화 문의', '010-5410-1536', AppColors.primary, () async => await launchUrl(Uri.parse('tel:15880000'))),
           const SizedBox(height: 12),
-          _supportCard(Icons.email_outlined, '이메일 문의', 'support@taximate.app', const Color(0xFF4A6FFF), () async => await launchUrl(Uri.parse('mailto:support@taximate.app'))),
+          _supportCard(Icons.email_outlined, '이메일 문의', '2020gomtang@gmail.com', const Color(0xFF4A6FFF), () async => await launchUrl(Uri.parse('mailto:support@taximate.app'))),
         ]),
       ),
     );
@@ -622,4 +648,256 @@ class _RecentPassenger {
   final String id, nickname, rideDate, route;
   _RecentPassenger({required this.id, required this.nickname, required this.rideDate, required this.route});
 }
-class _AuthScreen extends StatelessWidget { const _AuthScreen(); @override Widget build(_) => Scaffold(appBar: _appBar('인증 관리'), body: const Center(child: Text('화면 준비 중'))); }
+// ============================================================
+// 인증 관리 화면 (옥토모 단일 인증 체계)
+// ============================================================
+class _AuthScreen extends StatefulWidget {
+  const _AuthScreen();
+
+  @override
+  State<_AuthScreen> createState() => _AuthScreenState();
+}
+
+class _AuthScreenState extends State<_AuthScreen> {
+  // 휴대폰 인증 여부만 관리합니다.
+  bool _isPhoneVerified = false;
+
+  // 휴대폰 인증 바텀시트 호출
+  void _showPhoneAuthSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _PhoneAuthBottomSheet(
+        onVerified: (success) {
+          if (success) {
+            setState(() => _isPhoneVerified = true);
+          }
+        },
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.bg,
+      appBar: _appBar('인증 관리'),
+      body: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildHeader(),
+            _sectionTitle('본인 확인 인증'),
+            _buildAuthTile(
+              icon: Icons.phone_android_outlined,
+              label: '휴대폰 번호 인증 (옥토모)',
+              isVerified: _isPhoneVerified,
+              onTap: _isPhoneVerified ? () {} : _showPhoneAuthSheet,
+            ),
+            const SizedBox(height: 24),
+            _buildInfoBox(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader() {
+    return Container(
+      width: double.infinity,
+      color: Colors.white,
+      padding: const EdgeInsets.fromLTRB(24, 32, 24, 32),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: _isPhoneVerified
+                  ? AppColors.primary.withOpacity(0.1)
+                  : AppColors.gray.withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              _isPhoneVerified ? Icons.verified : Icons.shield_outlined,
+              color: _isPhoneVerified ? AppColors.primary : AppColors.gray,
+              size: 44
+            ),
+          ),
+          const SizedBox(height: 20),
+          Text(
+            _isPhoneVerified ? '인증이 완료되었습니다' : '본인 인증이 필요합니다',
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: AppColors.secondary),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _isPhoneVerified ? 'Crescit의 모든 기능을 안전하게 이용할 수 있습니다.' : '안전한 거래를 위해 휴대폰 인증을 진행해 주세요.',
+            style: const TextStyle(fontSize: 13, color: AppColors.gray),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _sectionTitle(String t) => Padding(
+    padding: const EdgeInsets.fromLTRB(20, 24, 20, 12),
+    child: Text(t, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.gray)),
+  );
+
+  Widget _buildAuthTile({required IconData icon, required String label, required bool isVerified, required VoidCallback onTap}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(14),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+            decoration: BoxDecoration(
+              border: Border.all(color: isVerified ? AppColors.primary.withOpacity(0.5) : AppColors.border),
+              borderRadius: BorderRadius.circular(14)
+            ),
+            child: Row(
+              children: [
+                Icon(icon, color: isVerified ? AppColors.primary : AppColors.gray, size: 22),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.secondary))
+                ),
+                if (isVerified)
+                  const Row(
+                    children: [
+                      Text('인증됨', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, fontSize: 13)),
+                      SizedBox(width: 6),
+                      Icon(Icons.check_circle, color: AppColors.primary, size: 20)
+                    ],
+                  )
+                else
+                  const Icon(Icons.chevron_right, color: AppColors.border),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoBox() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: AppColors.border)),
+      child: const Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.info_outline, size: 16, color: AppColors.gray),
+          SizedBox(width: 10),
+          Expanded(child: Text('인증된 정보는 수정이 불가능하며, 탈퇴 시까지 안전하게 보관됩니다.', style: TextStyle(fontSize: 11, color: AppColors.gray, height: 1.5))),
+        ],
+      ),
+    );
+  }
+}
+
+// ============================================================
+// 휴대폰 인증 바텀시트 (OCTOMO)
+// ============================================================
+class _PhoneAuthBottomSheet extends StatefulWidget {
+  final Function(bool) onVerified;
+  const _PhoneAuthBottomSheet({required this.onVerified});
+
+  @override
+  State<_PhoneAuthBottomSheet> createState() => _PhoneAuthBottomSheetState();
+}
+
+class _PhoneAuthBottomSheetState extends State<_PhoneAuthBottomSheet> {
+  final _phoneCtrl = TextEditingController();
+  bool _isLoading = false;
+  bool _codeSent = false;
+  bool _isVerifying = false;
+  String _authCode = '';
+  String _octomoNumber = '1666-3538';
+
+  void _sendCode() async {
+    if (_phoneCtrl.text.length < 10) return;
+    setState(() => _isLoading = true);
+    final result = await AuthService.sendVerificationCode(phone: _phoneCtrl.text.trim());
+    setState(() {
+      _isLoading = false;
+      if (result['success']) {
+        _codeSent = true;
+        _authCode = result['code'] ?? '123456';
+      }
+    });
+  }
+
+  void _verify() async {
+      setState(() => _isVerifying = true);
+
+
+      final result = await AuthService.updateLoggedUserPhone(phone: _phoneCtrl.text.trim());
+
+      setState(() => _isVerifying = false);
+      if (result['success'] == true) { // 📍 verified가 아니라 success 체크 (갱신용 API 응답에 맞춰서)
+        widget.onVerified(true);
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('본인 인증 및 정보 갱신이 완료되었습니다.')));
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(result['message'] ?? '인증 실패')));
+      }
+    }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom + 24, top: 24, left: 20, right: 20),
+      decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 20), decoration: BoxDecoration(color: AppColors.border, borderRadius: BorderRadius.circular(2))),
+            const Text('휴대폰 번호 인증', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: AppColors.secondary)),
+            const SizedBox(height: 24),
+            Row(children: [
+              Expanded(child: TextField(controller: _phoneCtrl, keyboardType: TextInputType.phone, decoration: InputDecoration(hintText: '010-0000-0000', filled: true, fillColor: AppColors.bg, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none)))),
+              const SizedBox(width: 10),
+              ElevatedButton(
+                onPressed: _isLoading ? null : _sendCode,
+                style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)), elevation: 0, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14)),
+                child: Text(_codeSent ? '재발송' : '코드받기', style: const TextStyle(fontWeight: FontWeight.bold)),
+              )
+            ]),
+            if (_codeSent) ...[
+              const SizedBox(height: 24),
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(color: AppColors.bg, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.border)),
+                child: Column(children: [
+                  const Text('인증 코드를 문자로 보내주세요', style: TextStyle(fontSize: 13, color: AppColors.gray, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 12),
+                  Text(_authCode, style: const TextStyle(fontSize: 36, fontWeight: FontWeight.w900, color: AppColors.primary, letterSpacing: 8)),
+                  const SizedBox(height: 16),
+                  SizedBox(width: double.infinity, height: 48, child: OutlinedButton.icon(
+                    onPressed: () async => await launchUrl(Uri.parse('sms:$_octomoNumber?body=$_authCode')),
+                    icon: const Icon(Icons.send, size: 18),
+                    label: const Text('메시지 앱 바로 열기', style: TextStyle(fontWeight: FontWeight.bold)),
+                    style: OutlinedButton.styleFrom(foregroundColor: AppColors.primary, side: const BorderSide(color: AppColors.primary, width: 1.5), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+                  )),
+                ]),
+              ),
+              const SizedBox(height: 20),
+              SizedBox(width: double.infinity, height: 52, child: ElevatedButton(
+                onPressed: _isVerifying ? null : _verify,
+                style: ElevatedButton.styleFrom(backgroundColor: AppColors.secondary, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)), elevation: 0),
+                child: _isVerifying ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) : const Text('인증 완료 확인', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+              )),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}

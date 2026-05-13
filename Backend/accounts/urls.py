@@ -26,7 +26,7 @@ urlpatterns = [
     path('profile/', views.UserProfileView.as_view(), name='user-profile'),
     path('logout/', LogoutView.as_view(), name='logout'),
     path('profile/image/', views.ProfileImageUpdateView.as_view(), name='update-profile-image'),
-
+    path('update-phone/', UpdatePhoneView.as_view(), name='update_phone'),
     # 2. 로그인
     path('login/', LoginView.as_view(), name='login'),
 ]

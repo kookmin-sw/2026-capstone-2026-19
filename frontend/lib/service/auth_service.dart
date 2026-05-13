@@ -439,5 +439,40 @@ class AuthService {
           return {'success': false, 'message': '서버 연결 오류'};
         }
       }
+      static Future<Map<String, dynamic>> updateLoggedUserPhone({required String phone}) async {
+          try {
+            final token = AuthSession.token;
+            if (token == null) return {'success': false, 'message': '로그인이 필요합니다.'};
+
+            // 회원가입용(verify-code/)과 분리된, 정보 수정용 엔드포인트라고 가정합니다.
+            // 백엔드에도 이 주소에 매핑되는 UpdateView가 있어야 합니다.
+            final url = Uri.parse('$baseUrl/update-phone/');
+
+            final response = await http.post(
+              url,
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Token $token', // 📍 누구의 번호를 바꿀지 알려주는 핵심
+              },
+              body: jsonEncode({'phone': phone}),
+            );
+
+            final data = jsonDecode(utf8.decode(response.bodyBytes));
+
+            if (response.statusCode == 200 && data['success'] == true) {
+              return {
+                'success': true,
+                'message': data['message'] ?? '전화번호가 성공적으로 갱신되었습니다.',
+              };
+            }
+
+            return {
+              'success': false,
+              'message': data['message'] ?? '번호 갱신에 실패했습니다.'
+            };
+          } catch (e) {
+            return {'success': false, 'message': '서버 연결 오류가 발생했습니다.'};
+          }
+        }
 }
 
