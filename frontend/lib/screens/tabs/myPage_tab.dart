@@ -43,6 +43,50 @@ class _MyPageTabState extends State<MyPageTab> {
     }
   }
 
+  // 1. 누락되었던 닫는 괄호를 추가했습니다.
+  void _refreshProfile() {
+    if (AuthSession.isLoggedIn) {
+      setState(() {
+        _profileFuture = AuthService.getProfile();
+      });
+    }
+  }
+
+  // 2. 중복되었던 _pickImage를 하나로 통합했습니다.
+  Future<void> _pickImage(ImageSource source) async {
+    try {
+      final XFile? picked = await _picker.pickImage(
+          source: source,
+          imageQuality: 80,
+          maxWidth: 512,
+          maxHeight: 512
+      );
+
+      if (picked != null) {
+        final result = await AuthService.updateProfileImage(File(picked.path));
+
+        if (result['success'] == true) {
+          setState(() {
+            _profileImage = File(picked.path);
+          });
+          _refreshProfile(); // 서버 데이터를 다시 불러와 UI 갱신
+        }
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(result['message'] ?? '프로필 사진이 변경되었습니다.'))
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('사진을 처리하는 중 오류가 발생했습니다.'))
+        );
+      }
+    }
+  }
+
   List<_MenuItem> _getDynamicMenus(Map<String, dynamic> userData) {
     final String score = userData['trust_score']?.toString() ?? '36.5';
     final int count = userData['successful_streak_count'] ?? 0;
@@ -94,18 +138,6 @@ class _MyPageTabState extends State<MyPageTab> {
     );
   }
 
-  Future<void> _pickImage(ImageSource source) async {
-    try {
-      final XFile? picked = await _picker.pickImage(source: source, imageQuality: 80, maxWidth: 512, maxHeight: 512);
-      if (picked != null) {
-        setState(() => _profileImage = File(picked.path));
-        final result = await AuthService.updateProfileImage(File(picked.path));
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(result['message'])));
-      }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('사진을 불러올 수 없습니다.')));
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -240,19 +272,23 @@ class _MyPageTabState extends State<MyPageTab> {
           borderRadius: BorderRadius.circular(14),
           child: InkWell(
             borderRadius: BorderRadius.circular(14),
-            onTap: () async { // 📍 async 추가
+            onTap: () async {
               if (menu.label == '로그아웃') {
                 _showLogoutDialog(context);
                 return;
               }
-              if (menu.screen != null) {
-                // 📍 화면 이동 후 돌아올 때까지 기다림
-                await Navigator.push(context, MaterialPageRoute(builder: (_) => menu.screen!));
 
-                // 📍 돌아오자마자 서버 데이터를 다시 불러와서 "인증됨" 상태를 반영!
-                setState(() {
-                  _profileFuture = AuthService.getProfile();
-                });
+              if (menu.screen != null) {
+                // 1. 화면 이동 후 사용자가 뒤로가기를 누를 때까지 기다립니다.
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => menu.screen!)
+                );
+
+                // 2. 돌아오자마자 최신 정보를 다시 가져옵니다.
+                // _refreshProfile() 내부에 setState와 _profileFuture 갱신 로직이 들어있다면
+                // 아래처럼 한 줄만 써주면 됩니다.
+                _refreshProfile();
               }
             },
             child: Container(
@@ -691,7 +727,7 @@ class _AuthScreenState extends State<_AuthScreen> {
             _sectionTitle('본인 확인 인증'),
             _buildAuthTile(
               icon: Icons.phone_android_outlined,
-              label: '휴대폰 번호 인증 (옥토모)',
+              label: '휴대폰 번호 인증',
               isVerified: _isPhoneVerified,
               onTap: _isPhoneVerified ? () {} : _showPhoneAuthSheet,
             ),

@@ -479,6 +479,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
   @override
   void initState() {
     super.initState();
+    NotificationService.currentActiveRoomId = widget.room.id;
     _pinnedNotice = widget.room.pinnedNotice;
     _refreshCurrentRoomInfo();
     _loadChatMessages();
@@ -840,6 +841,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
   @override
   void dispose() {
+    NotificationService.currentActiveRoomId = null;
     _channel?.sink.close();
     _inputCtrl.dispose();
     _scrollCtrl.dispose();

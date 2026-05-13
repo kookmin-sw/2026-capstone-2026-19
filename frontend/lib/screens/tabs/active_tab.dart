@@ -11,6 +11,8 @@ import '../../service/trip_service.dart';
 import '../../service/auth_session.dart';
 import 'message_tab.dart';
 import '../../service/notification_service.dart';
+import 'dart:async'; // StreamSubscription 사용을 위해 추가
+import 'package:web_socket_channel/web_socket_channel.dart';
 
 // ============================================================
 // 열거형 & 모델
@@ -88,92 +90,130 @@ class ActiveRidePin {
   }
 }
 
-class ActiveRideState extends ChangeNotifier {
-  List<ActiveRidePin> _waitingPins = [];
-    List<ActiveRidePin> _myPins = [];
-    bool _isLoading = false;
+ class ActiveRideState extends ChangeNotifier {
+   List<ActiveRidePin> _waitingPins = [];
+   List<ActiveRidePin> _myPins = [];
+   bool _isLoading = false;
 
-    List<ActiveRidePin> get waitingPins => _waitingPins;
-    List<ActiveRidePin> get myPins => _myPins;
-    bool get isLoading => _isLoading;
+   // 🆕 실시간 통신을 위한 채널 변수 (웹/앱 공용)
+   WebSocketChannel? _channel;
+   StreamSubscription? _wsSubscription; // 🆕 메모리 누수 방지를 위한 구독 객체
 
-    // 📍 기존 home_tab.dart와의 호환성을 위해 이름을 activeRide로 유지합니다.
-    ActiveRidePin? get activeRide {
-      final allRides = [..._myPins, ..._waitingPins]
-        ..where((p) => p.phase != RidePhase.completed).toList()
-        ..sort((a, b) => a.departTime.compareTo(b.departTime));
-      if (allRides.isEmpty) return null;
-      return allRides.first;
-    }
+   List<ActiveRidePin> get waitingPins => _waitingPins;
+   List<ActiveRidePin> get myPins => _myPins;
+   bool get isLoading => _isLoading;
 
-  // 📍 1. 실제 데이터 로드
-  Future<void> fetchActiveRides() async {
-    _isLoading = true;
-    notifyListeners();
-    try {
-      final data = await TripService.getMyTrips(token: AuthSession.token ?? '');
-      final allPins = data.map((j) => ActiveRidePin.fromJson(j)).toList();
+   ActiveRidePin? get activeRide {
+     final allRides = [..._myPins, ..._waitingPins]
+       ..where((p) => p.phase != RidePhase.completed).toList()
+       ..sort((a, b) => a.departTime.compareTo(b.departTime));
+     if (allRides.isEmpty) return null;
+     return allRides.first;
+   }
 
-      _myPins = allPins.where((p) => p.isMine).toList();
-      _waitingPins = allPins.where((p) => !p.isMine).toList();
-      final currentRide = activeRide; // 현재 진행중인 핀 가져오기
-            if (currentRide != null) {
-              // 이용 중인 택시가 있으면 알림 업데이트 및 고정
-              NotificationService.showOngoingRide(
-                title: '🚖 TaxiMate 이용 중',
-                body: '${currentRide.time} 출발 | ${currentRide.dept} → ${currentRide.dest}',
-              );
-            } else {
-              // 이용 중인 택시가 없거나 정산이 모두 끝났으면 알림 삭제
-              NotificationService.cancelOngoingRide();
-            }
-    } catch (e) {
-      debugPrint('이용 중 데이터 로드 실패: $e');
-    } finally {
-      _isLoading = false;
-      notifyListeners();
-    }
-  }
+   // 🆕 1. 실시간 리스너 시작
+   void initRealTimeListener(int tripId) {
+     _stopListener(); // 중복 연결 방지
 
-  // 📍 2. 탑승 완료 처리 -> CLOSED 상태로 변경
-  Future<void> completeBoarding(int tripId) async {
-    final success = await TripService.updateTripStatus(
-      token: AuthSession.token ?? '',
-      tripId: tripId,
-      status: 'CLOSED',
-    );
-    if (success) await fetchActiveRides();
-  }
+     // Django Channels 주소 (본인의 서버 설정에 맞게 수정)
+     final wsUrl = 'ws://10.0.2.2:8000/ws/trip/$tripId/';
 
-  // 📍 3. 핀 모집 마감 -> FULL 상태로 변경
-  Future<void> closePinRecruit(int tripId) async {
-    final success = await TripService.updateTripStatus(
-      token: AuthSession.token ?? '',
-      tripId: tripId,
-      status: 'FULL',
-    );
-    if (success) await fetchActiveRides();
-  }
+     try {
+       _channel = WebSocketChannel.connect(Uri.parse(wsUrl)); // 변경된 패키지 적용
+       _wsSubscription = _channel!.stream.listen((message) { // 구독 객체에 저장
+         debugPrint('실시간 업데이트 신호 수신: $message');
+         fetchActiveRides(); // 신호 오면 즉시 갱신
+       }, onError: (err) {
+         debugPrint('웹소켓 에러 발생: $err');
+       });
+     } catch (e) {
+       debugPrint('웹소켓 연결 실패: $e');
+     }
+   }
 
-  // 📍 4. 핀 삭제 및 신청 취소
-  Future<void> deleteOrCancelTrip(int tripId, {required bool isMine}) async {
-    bool success = false;
-    if (isMine) {
-      success = await TripService.deleteTrip(
-        token: AuthSession.token ?? '',
-        tripId: tripId,
-      );
-    } else {
-      final result = await TripService.leaveTrip(
-        token: AuthSession.token ?? '',
-        tripId: tripId,
-      );
-      success = result['success'] == true;
-    }
-    if (success) await fetchActiveRides();
-  }
-}
+   // 🆕 2. 리스너 중지
+   void _stopListener() {
+     _wsSubscription?.cancel(); // 🆕 수신 스트림 먼저 취소
+     _wsSubscription = null;
+     _channel?.sink.close();
+     _channel = null;
+   }
 
+   // 📍 데이터 로드 및 리스너 자동 연결
+   Future<void> fetchActiveRides() async {
+     _isLoading = true;
+     notifyListeners();
+     try {
+       final data = await TripService.getMyTrips(token: AuthSession.token ?? '');
+       final allPins = data.map((j) => ActiveRidePin.fromJson(j)).toList();
+
+       _myPins = allPins.where((p) => p.isMine).toList();
+       _waitingPins = allPins.where((p) => !p.isMine).toList();
+
+       final currentRide = activeRide;
+       if (currentRide != null) {
+         NotificationService.showOngoingRide(
+           title: '🚖 TaxiMate 이용 중',
+           body: '${currentRide.time} 출발 | ${currentRide.dept} → ${currentRide.dest}',
+         );
+         // 실시간 감시 시작
+         initRealTimeListener(currentRide.id);
+       } else {
+         NotificationService.cancelOngoingRide();
+         _stopListener();
+       }
+     } catch (e) {
+       debugPrint('이용 중 데이터 로드 실패: $e');
+     } finally {
+       _isLoading = false;
+       notifyListeners();
+     }
+   }
+
+   // 📍 2. 탑승 완료 처리 -> CLOSED 상태로 변경
+   Future<void> completeBoarding(int tripId) async {
+     final success = await TripService.updateTripStatus(
+       token: AuthSession.token ?? '',
+       tripId: tripId,
+       status: 'CLOSED',
+     );
+     if (success) await fetchActiveRides();
+   }
+
+   // 📍 3. 핀 모집 마감 -> FULL 상태로 변경
+   Future<void> closePinRecruit(int tripId) async {
+     final success = await TripService.updateTripStatus(
+       token: AuthSession.token ?? '',
+       tripId: tripId,
+       status: 'FULL',
+     );
+     if (success) await fetchActiveRides();
+   }
+
+   // 📍 4. 핀 삭제 및 신청 취소
+   Future<void> deleteOrCancelTrip(int tripId, {required bool isMine}) async {
+     bool success = false;
+     if (isMine) {
+       success = await TripService.deleteTrip(
+         token: AuthSession.token ?? '',
+         tripId: tripId,
+       );
+     } else {
+       final result = await TripService.leaveTrip(
+         token: AuthSession.token ?? '',
+         tripId: tripId,
+       );
+       success = result['success'] == true;
+     }
+     if (success) await fetchActiveRides();
+   }
+
+   @override
+   void dispose() {
+     _stopListener();
+     super.dispose();
+   }
+ }
 final globalActiveRideState = ActiveRideState();
 
 // ============================================================
@@ -930,6 +970,7 @@ class _ActiveTabState extends State<ActiveTab> with SingleTickerProviderStateMix
   void dispose() {
     TripService.tripsRefreshNotifier.removeListener(_state.fetchActiveRides);
     _tabCtrl.dispose();
+    _state.dispose();
     super.dispose();
   }
 
