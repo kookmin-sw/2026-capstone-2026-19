@@ -194,7 +194,7 @@ class ActiveRidePin {
    Future<void> deleteOrCancelTrip(int tripId, {required bool isMine}) async {
      bool success = false;
      if (isMine) {
-       success = await TripService.deleteTrip(
+       final result = await TripService.deleteTrip(
          token: AuthSession.token ?? '',
          tripId: tripId,
        );

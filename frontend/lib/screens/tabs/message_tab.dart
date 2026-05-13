@@ -11,6 +11,7 @@ import '../../service/trip_service.dart';
 import '../../service/settlement_service.dart';
 import '../../config/app_config.dart';
 import 'package:http/http.dart' as http;
+import '../../service/notification_service.dart';
 
 // ── 채팅방 모델 ──────────────────────────────────
 class ChatRoomModel {
