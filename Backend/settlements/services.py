@@ -82,67 +82,83 @@ def extract_total_amount_from_text(raw_text: str):
 
 def extract_ride_time_from_text(raw_text: str, *, base_depart_time=None):
     """
-    OCR 원문에서 택시 이용 날짜/시간 후보를 추출한다.
-    카카오T 이용내역처럼 2026.05.06 20:30, 2026-05-06 20:30,
-    05.06 20:30, 20:30 형태를 우선 지원한다.
-    날짜가 없는 시간만 잡히면 Trip.depart_time의 날짜를 사용한다.
+    OCR 원문에서 실제 택시 운행 시작 시각을 추출한다.
+
+    카카오T 이용내역 기준:
+    - 결제일시에서는 날짜만 사용한다. 예: 26.05.13 16:30 -> 2026-05-13
+    - 운행시간에서는 출발시간만 사용한다. 예: 15:50 - 16:30 -> 15:50
+    - 최종 검증 시각은 결제일시의 날짜 + 운행시간의 출발시간이다.
     """
     if not raw_text:
         return None
 
     text = raw_text.replace("\n", " ")
 
-    # 2026.05.06 20:30 / 2026-05-06 20:30 / 2026/05/06 20:30
-    full_datetime_patterns = [
-        r"(20\d{2})[.\-/년\s]+(\d{1,2})[.\-/월\s]+(\d{1,2})[일\s]+(\d{1,2})[:시](\d{2})",
+    def normalize_year(year_text):
+        year = int(year_text)
+        if year < 100:
+            return 2000 + year
+        return year
+
+    def get_base_date():
+        """
+        결제일시에서 날짜를 우선 추출한다.
+        결제일시 날짜를 못 찾으면 모집 출발시각의 날짜를 사용한다.
+        """
+        payment_date_patterns = [
+            r"결제\s*일시[^\d]{0,20}(20\d{2}|\d{2})[.\-/년\s]+(\d{1,2})[.\-/월\s]+(\d{1,2})",
+            r"(20\d{2}|\d{2})[.\-/](\d{1,2})[.\-/](\d{1,2})\s+\d{1,2}[:시]\d{2}",
+        ]
+
+        for pattern in payment_date_patterns:
+            match = re.search(pattern, text)
+            if match:
+                year_text, month_text, day_text = match.groups()
+                return (
+                    normalize_year(year_text),
+                    int(month_text),
+                    int(day_text),
+                )
+
+        if base_depart_time:
+            local_base_depart_time = (
+                timezone.localtime(base_depart_time)
+                if timezone.is_aware(base_depart_time)
+                else base_depart_time
+            )
+            return (
+                local_base_depart_time.year,
+                local_base_depart_time.month,
+                local_base_depart_time.day,
+            )
+
+        return None
+
+    base_date = get_base_date()
+    if not base_date:
+        return None
+
+    year, month, day = base_date
+
+    # 운행시간 15:50 - 16:30 / 운행 시간 15:50~16:30
+    ride_time_patterns = [
+        r"운행\s*시간[^\d]{0,30}(\d{1,2})[:시](\d{2})\s*(?:[-~–—]|부터|→|to)\s*(\d{1,2})[:시](\d{2})",
+        r"(?<!\d)(\d{1,2})[:시](\d{2})\s*(?:[-~–—]|부터|→|to)\s*(\d{1,2})[:시](\d{2})(?!\d)",
     ]
 
-    for pattern in full_datetime_patterns:
+    for pattern in ride_time_patterns:
         match = re.search(pattern, text)
         if match:
-            year, month, day, hour, minute = map(int, match.groups())
-            try:
-                return timezone.make_aware(
-                    timezone.datetime(year, month, day, hour, minute),
-                    timezone.get_current_timezone(),
-                )
-            except ValueError:
-                return None
+            start_hour, start_minute = int(match.group(1)), int(match.group(2))
 
-    # 05.06 20:30 / 5월 6일 20:30
-    month_day_time_patterns = [
-        r"(\d{1,2})[.\-/월\s]+(\d{1,2})[일\s]+(\d{1,2})[:시](\d{2})",
-    ]
-
-    for pattern in month_day_time_patterns:
-        match = re.search(pattern, text)
-        if match and base_depart_time:
-            month, day, hour, minute = map(int, match.groups())
-            try:
-                return timezone.make_aware(
-                    timezone.datetime(base_depart_time.year, month, day, hour, minute),
-                    timezone.get_current_timezone(),
-                )
-            except ValueError:
-                return None
-
-    # 20:30 / 20시 30분
-    time_only_patterns = [
-        r"(\d{1,2})[:시](\d{2})",
-    ]
-
-    for pattern in time_only_patterns:
-        match = re.search(pattern, text)
-        if match and base_depart_time:
-            hour, minute = map(int, match.groups())
-
-            if 0 <= hour <= 23 and 0 <= minute <= 59:
-                return base_depart_time.replace(
-                    hour=hour,
-                    minute=minute,
-                    second=0,
-                    microsecond=0,
-                )
+            if 0 <= start_hour <= 23 and 0 <= start_minute <= 59:
+                try:
+                    return timezone.make_aware(
+                        timezone.datetime(year, month, day, start_hour, start_minute),
+                        timezone.get_current_timezone(),
+                    )
+                except ValueError:
+                    return None
 
     return None
 
