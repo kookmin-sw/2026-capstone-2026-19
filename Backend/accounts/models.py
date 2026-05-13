@@ -70,6 +70,8 @@ class User(AbstractUser):
         blank=True,
         null=True,
     )
+    
+    fcm_token = models.CharField(max_length=255, blank=True, null=True)
 
     trust_score = models.DecimalField(
         max_digits=3,
