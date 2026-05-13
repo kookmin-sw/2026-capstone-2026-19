@@ -10,7 +10,9 @@ from .views import (
     RecentCompanionsView,
     WithdrawView,
     UserProfileView,
-    LogoutView,UpdatePhoneView,
+    LogoutView,
+    UpdatePhoneView,
+    UpdateFCMTokenView,
 )
 from . import views
 
