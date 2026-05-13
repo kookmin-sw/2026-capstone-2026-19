@@ -16,6 +16,7 @@ import 'utils/colors.dart';
 import 'utils/routes.dart';
 import 'service/notification_service.dart';
 import 'service/auth_session.dart';
+import 'service/notification_service.dart';
 
 void main() async {
   // 1. Flutter 엔진 초기화
