@@ -293,3 +293,95 @@ class LogoutView(APIView):
             return Response({"success": True, "message": "성공적으로 로그아웃 되었습니다."}, status=status.HTTP_200_OK)
         except Exception:
             return Response({"success": False, "message": "로그아웃 처리 중 오류 발생"}, status=status.HTTP_400_BAD_REQUEST)
+
+class UpdatePhoneView(APIView):
+    """
+    로그인한 사용자의 전화번호를 옥토모 인증 후 실제로 DB에 갱신하는 뷰
+    """
+    permission_classes = [IsAuthenticated] # 📍 로그인 필수
+
+    def post(self, request):
+        user = request.user
+        phone_number = request.data.get('phone', '').strip()
+
+        if not phone_number:
+            return Response(
+                {'success': False, 'message': '전화번호가 필요합니다.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 1. 메모리 저장소에서 해당 번호의 인증 코드 추출
+        code = _verification_code_store.get(phone_number)
+        if not code:
+            return Response(
+                {'success': False, 'message': '인증 코드가 만료되었거나 존재하지 않습니다.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            if not OCTOMO_API_KEY:
+                return Response(
+                    {'success': False, 'message': '인증 서버 설정 오류가 발생했습니다.'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+
+            # 2. 옥토모 API 호출 (실제 SMS 발송 여부 확인)
+            headers = {'Content-Type': 'application/json', 'Authorization': f'Octomo {OCTOMO_API_KEY}'}
+            body = {'mobileNum': phone_number, 'text': code}
+            response = requests.post(OCTOMO_API_URL, headers=headers, json=body, timeout=5)
+
+            if not response.ok:
+                return Response(
+                    {'success': False, 'message': '인증 서버 오류가 발생했습니다.'},
+                    status=status.HTTP_502_BAD_GATEWAY
+                )
+
+            data = response.json()
+            verified = data.get('verified', False) or data.get('exists', False)
+
+            if verified:
+                # 📍 3. 실제 DB 데이터 갱신 (핵심 로직)
+                # 이미 다른 사람이 이 번호를 사용 중인지 체크
+                if User.objects.exclude(id=user.id).filter(phone_number=phone_number).exists():
+                    return Response(
+                        {'success': False, 'message': '이미 다른 계정에서 사용 중인 번호입니다.'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                user.phone_number = phone_number
+                # 만약 모델에 is_phone_verified 필드가 있다면 아래 주석 해제
+                # user.is_phone_verified = True
+                user.save()
+
+                # 인증 완료 후 코드 삭제
+                _verification_code_store.delete(phone_number)
+
+                return Response({
+                    'success': True,
+                    'message': '전화번호 인증 및 변경이 완료되었습니다.',
+                    'phone': user.phone_number
+                })
+            else:
+                return Response({'success': False, 'message': '인증 메시지가 확인되지 않았습니다.'})
+
+        except requests.exceptions.RequestException:
+            return Response({'success': False, 'message': '인증 서버 연결 오류'},
+                            status=status.HTTP_502_BAD_GATEWAY)
+class UserProfileView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        return Response({
+            'success': True,
+            'data': {
+                'user_real_name': user.user_real_name,
+                'username': user.username,
+                'nickname': user.nickname,
+                'trust_score': float(user.trust_score),
+                'successful_streak_count': user.successful_streak_count,
+                'profile_img_url': user.profile_img_url.url if user.profile_img_url else None,
+                # 📍 추가: DB에 추가한 인증 필드값을 내려줍니다.
+                'is_phone_verified': getattr(user, 'is_phone_verified', False),
+            }
+        }, status=status.HTTP_200_OK)
