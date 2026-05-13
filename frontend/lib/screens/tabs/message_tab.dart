@@ -11,6 +11,7 @@ import '../../service/trip_service.dart';
 import '../../service/settlement_service.dart';
 import '../../config/app_config.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter/foundation.dart';
 
 // ── 채팅방 모델 ──────────────────────────────────
 class ChatRoomModel {
@@ -166,6 +167,16 @@ class SettlementMessage {
   }
 }
 
+class ChatTabBadgeController {
+  static final ValueNotifier<bool> hasNewChat = ValueNotifier<bool>(false);
+
+  static void setVisible(bool visible) {
+    if (hasNewChat.value != visible) {
+      hasNewChat.value = visible;
+    }
+  }
+}
+
 // ============================================================
 // 채팅 탭 — 목록 화면
 // ============================================================
@@ -189,6 +200,10 @@ class _MessageTabState extends State<MessageTab> {
 
   void _onChatRoomsChanged() {
     _fetchChatRooms(showLoading: false);
+  }
+
+  void _syncChatTabBadge() {
+    ChatTabBadgeController.setVisible(_roomsWithNewMessage.isNotEmpty);
   }
 
   @override
@@ -263,6 +278,29 @@ class _MessageTabState extends State<MessageTab> {
         final decoded = Map<String, dynamic>.from(decodedRaw);
         final eventType = decoded['type']?.toString();
 
+        if (eventType == 'chat_room_removed') {
+          final roomId = int.tryParse(decoded['room_id']?.toString() ?? '');
+          final tripId = int.tryParse(decoded['trip_id']?.toString() ?? '');
+
+          if (mounted) {
+            setState(() {
+              _serverRooms.removeWhere(
+                (room) =>
+                    (roomId != null && room.id == roomId) ||
+                    (tripId != null && room.tripId == tripId),
+              );
+
+              if (roomId != null) {
+                _roomsWithNewMessage.remove(roomId);
+              }
+            });
+
+            _syncChatTabBadge();
+          }
+
+          return;
+        }
+
         if (eventType == 'chat_room_updated') {
           final int? roomId = decoded['room_id'] is int
               ? decoded['room_id'] as int
@@ -275,6 +313,7 @@ class _MessageTabState extends State<MessageTab> {
             setState(() {
               _roomsWithNewMessage.add(roomId);
             });
+            _syncChatTabBadge();
           }
 
           _fetchChatRooms(showLoading: false);
@@ -347,6 +386,7 @@ class _MessageTabState extends State<MessageTab> {
         setState(() {
           _roomsWithNewMessage.remove(room.id);
         });
+        _syncChatTabBadge();
 
         _openedRoomId = room.id;
 
@@ -366,6 +406,7 @@ class _MessageTabState extends State<MessageTab> {
         setState(() {
           _roomsWithNewMessage.remove(room.id);
         });
+        _syncChatTabBadge();
         await _fetchChatRooms(showLoading: false);
       },
       child: Container(
@@ -517,7 +558,7 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
     final wsUrl = Uri.parse('${AppConfig.wsBaseUrl}/ws/chat/${widget.room.id}/?token=$token');
     _channel = WebSocketChannel.connect(wsUrl);
 
-    _channel!.stream.listen((data) {
+    _channel!.stream.listen((data) async {
       final decodedRaw = jsonDecode(data);
 
       if (decodedRaw is! Map) {
@@ -530,9 +571,40 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
 
       final shouldAutoScroll =
         decoded['sender'] == widget.myNickname || _isNearBottom();
+      final messageType = decoded['type']?.toString();
+
+      if (messageType == 'trip_deleted') {
+          if (!mounted) return;
+
+        await showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (dialogContext) {
+            return AlertDialog(
+              title: const Text('매칭 삭제 안내'),
+              content: Text(
+                decoded['message']?.toString() ?? '리더가 매칭을 삭제했습니다.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.of(dialogContext).pop();
+                  },
+                  child: const Text('확인'),
+                ),
+              ],
+            );
+          },
+        );
+
+        if (!mounted) return;
+        Navigator.of(context).pop();
+
+        return;
+      }
 
       setState(() {
-        final messageType = decoded['type']?.toString();
+        
 
         if (messageType == 'settlement_completed') {
           final notice = decoded['pinned_notice']?.toString();

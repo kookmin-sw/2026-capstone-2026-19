@@ -10,6 +10,26 @@ from channels.layers import get_channel_layer
 from chat.models import ChatRoom, ChatMessage
 from settlements.models import Settlement
 
+def notify_chat_room_removed(room_id, trip_id, user_ids, reason):
+    if not room_id:
+        return
+
+    channel_layer = get_channel_layer()
+
+    if not channel_layer:
+        return
+
+    for user_id in user_ids:
+        async_to_sync(channel_layer.group_send)(
+            f"user_{user_id}",
+            {
+                "type": "chat_room_removed",
+                "room_id": room_id,
+                "trip_id": trip_id,
+                "reason": reason,
+            },
+        )
+
 
 class TripCreateListView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -262,9 +282,50 @@ class TripStatusUpdateView(APIView):
         if trip.leader_user != request.user:
             return Response({"message": "삭제 권한이 없습니다."}, status=status.HTTP_403_FORBIDDEN)
 
+        room = ChatRoom.objects.filter(trip=trip).first()
+        room_id = room.id if room else None
+
+        user_ids = set()
+
+        if trip.leader_user_id:
+            user_ids.add(trip.leader_user_id)
+
+        joined_user_ids = trip.trip_participants.filter(
+            status=TripParticipant.StatusChoices.JOINED,
+        ).values_list("user_id", flat=True)
+
+        user_ids.update(joined_user_ids)
+
+        trip_id = trip.id
+
+        channel_layer = get_channel_layer()
+
+        if channel_layer and room_id:
+            async_to_sync(channel_layer.group_send)(
+                f"chat_{room_id}",
+                {
+                    "type": "broadcast_message",
+                    "message_type": "trip_deleted",
+                    "message": "리더가 매칭을 삭제했습니다.",
+                    "sender": request.user.username,
+                    "sender_user_id": request.user.id,
+                    "room_id": room_id,
+                    "trip_id": trip_id,
+                    "reason": "trip_deleted",
+                },
+            )
+
         # 핀(방) 삭제
         trip.delete()
-        # 성공 시 204 No Content 반환 (service.dart에서 이 코드를 기다림)
+
+        notify_chat_room_removed(
+            room_id=room_id,
+            trip_id=trip_id,
+            user_ids=user_ids,
+            reason="trip_deleted",
+        )
+
+        # 성공 시 204 No Content 반환
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -303,6 +364,8 @@ class TripLeaveView(APIView):
             )
 
         released_seat = participant.seat_position
+        room = ChatRoom.objects.filter(trip=trip).first()
+        room_id = room.id if room else None
 
         with transaction.atomic():
             participant.status = TripParticipant.StatusChoices.LEFT
@@ -318,6 +381,67 @@ class TripLeaveView(APIView):
             if joined_count < trip.capacity and trip.status in [Trip.StatusChoices.FULL, Trip.StatusChoices.CLOSED]:
                 trip.status = Trip.StatusChoices.OPEN
                 trip.save(update_fields=["status"])
+  
+        if room:
+            system_text = f"@{user.username} 님이 퇴장하였습니다."
+
+            system_message = ChatMessage.objects.create(
+                room=room,
+                sender_user=user,
+                message=system_text,
+                message_type=ChatMessage.MessageTypeChoices.SYSTEM,
+            )
+
+            channel_layer = get_channel_layer()
+
+            if channel_layer:
+                async_to_sync(channel_layer.group_send)(
+                    f"chat_{room.id}",
+                    {
+                        "type": "broadcast_message",
+                        "message_type": "system_message",
+                        "message": system_text,
+                        "sender": user.username,
+                        "sender_user_id": user.id,
+                        "message_id": system_message.id,
+                        "sent_at": system_message.sent_at.isoformat(),
+                    },
+                )
+
+                remaining_user_ids = set()
+
+                if trip.leader_user_id:
+                    remaining_user_ids.add(trip.leader_user_id)
+
+                joined_user_ids = trip.trip_participants.filter(
+                    status=TripParticipant.StatusChoices.JOINED,
+                ).values_list("user_id", flat=True)
+
+                remaining_user_ids.update(joined_user_ids)
+
+                # 나간 사람 본인에게는 N 배지를 만들 필요 없음
+                remaining_user_ids.discard(user.id)
+
+                for remaining_user_id in remaining_user_ids:
+                    async_to_sync(channel_layer.group_send)(
+                        f"user_{remaining_user_id}",
+                        {
+                            "type": "chat_room_updated",
+                            "room_id": room.id,
+                            "last_message": system_text,
+                            "message_type": "SYSTEM",
+                            "sender": user.username,
+                            "sender_user_id": user.id,
+                            "sent_at": system_message.sent_at.isoformat(),
+                        },
+                    )
+                
+        notify_chat_room_removed(
+            room_id=room_id,
+            trip_id=trip.id,
+            user_ids=[user.id],
+            reason="trip_left",
+        )
 
         return Response(
             {

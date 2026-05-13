@@ -301,3 +301,16 @@ class NotificationConsumer(AsyncWebsocketConsumer):
                 ensure_ascii=False,
             )
         )
+        
+    async def chat_room_removed(self, event):
+        await self.send(
+            text_data=json.dumps(
+                {
+                    "type": "chat_room_removed",
+                    "room_id": event.get("room_id"),
+                    "trip_id": event.get("trip_id"),
+                    "reason": event.get("reason", ""),
+                },
+                ensure_ascii=False,
+            )
+        )
