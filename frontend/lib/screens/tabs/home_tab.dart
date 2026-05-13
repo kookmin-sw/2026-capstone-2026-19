@@ -208,11 +208,29 @@ class _HomeTabState extends State<HomeTab> {
       return;
     }
 
-    // 3. 실시간 위치 스트림 구독 시작
+    // 3. 초기 위치 1회 획득 (스트림 구독 전)
+    try {
+      final initial = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+      if (!mounted) return;
+      setState(() {
+        _currentPosition = initial;
+        _mapCenterLat = initial.latitude;
+        _mapCenterLng = initial.longitude;
+        _locationLoading = false;
+      });
+      _updateVisiblePins(initial.latitude, initial.longitude);
+      await _refreshMapMarkers();
+    } catch (_) {
+      // 초기 픽스 실패 시 아래 스트림으로 보완
+    }
+
+    // 4. 실시간 위치 스트림 구독 시작
     _positionStream = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.medium,
-        distanceFilter: 100, // 5미터 이동 시 업데이트
+        distanceFilter: 10, // 10미터 단위 갱신
       ),
     ).listen((position) {
       setState(() {
@@ -468,58 +486,91 @@ class _HomeTabState extends State<HomeTab> {
 
   // ── 지도 + 드래그 시트 ──
   Widget _buildMapWithSheet() {
-      return Stack(children: [
-        // 지도 준비 전에는 플레이스홀더만 렌더링해 로딩 중복 노출 방지
-        _canLoadMap ? _buildKakaoMap() : _buildMapPlaceholder(),
+    final activePin = _activePinData;
+    final List<RidePin> displayPins = (_activePinId != null && activePin != null)
+        ? _visiblePins.where((p) => p.dept == activePin.dept).toList()
+        : _visiblePins;
 
-        // 내 위치 버튼
-        if (_canLoadMap)
-          Positioned(
-            bottom: _activePinId != null ? 320 : 14,
-            right: 16,
-            child: FloatingActionButton.small(
-              heroTag: 'location_btn',
-              backgroundColor: Colors.white,
-              elevation: 4,
-              onPressed: _moveToMyLocation,
-              child: const Icon(Icons.my_location, color: AppColors.primary, size: 22),
-            ),
-          ),
+    return Stack(children: [
+      // 지도 준비 전에는 플레이스홀더만 렌더링해 로딩 중복 노출 방지
+      _canLoadMap ? _buildKakaoMap() : _buildMapPlaceholder(),
 
-        // 핀 목록 시트
-        if (_activePinId != null)
-          DraggableScrollableSheet(
-            controller: _sheetController,
-            initialChildSize: 0.45,
-            minChildSize: 0.3,
-            maxChildSize: 0.85,
-            snap: true,
-            snapSizes: const [0.3, 0.45, 0.85],
-            builder: (context, scrollController) {
-              return Container(
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-                  boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 16, offset: Offset(0, -4))],
-                ),
-                child: Column(children: [
-                  _buildSheetHeader(),
-                  Expanded(
-                    child: _visiblePins.isEmpty
-                        ? const Center(child: Text('이 지역에 동승 핀이 없습니다.', style: TextStyle(color: AppColors.gray)))
-                        : ListView.builder(
-                      controller: scrollController,
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                      itemCount: _visiblePins.length,
-                      itemBuilder: (_, i) => _buildRideCard(_visiblePins[i]),
-                    ),
-                  ),
-                ]),
-              );
+      // 수동 새로고침 (내 위치 버튼 위)
+      if (_canLoadMap)
+        Positioned(
+          bottom: _activePinId != null ? 370 : 64,
+          right: 16,
+          child: FloatingActionButton.small(
+            heroTag: 'refresh_btn',
+            backgroundColor: Colors.white,
+            elevation: 4,
+            onPressed: () {
+              _fetchServerPins();
             },
+            child: const Icon(Icons.refresh, color: AppColors.primary, size: 22),
           ),
-      ]);
-    } // 🔴 _buildMapWithSheet 함수는 여기서 완전히 끝납니다! 🔴
+        ),
+
+      // 내 위치 버튼
+      if (_canLoadMap)
+        Positioned(
+          bottom: _activePinId != null ? 320 : 14,
+          right: 16,
+          child: FloatingActionButton.small(
+            heroTag: 'location_btn',
+            backgroundColor: Colors.white,
+            elevation: 4,
+            onPressed: _moveToMyLocation,
+            child: const Icon(Icons.my_location, color: AppColors.primary, size: 22),
+          ),
+        ),
+
+      // 핀 목록 시트
+      if (_activePinId != null)
+        DraggableScrollableSheet(
+          controller: _sheetController,
+          initialChildSize: 0.45,
+          minChildSize: 0.3,
+          maxChildSize: 0.85,
+          snap: true,
+          snapSizes: const [0.3, 0.45, 0.85],
+          builder: (context, scrollController) {
+            return Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 16, offset: Offset(0, -4))],
+              ),
+              child: Column(children: [
+                _buildSheetHeader(sheetListCount: displayPins.length),
+                Expanded(
+                  child: displayPins.isEmpty
+                      ? ListView(
+                          controller: scrollController,
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                          children: const [
+                            SizedBox(height: 120),
+                            Center(
+                              child: Text(
+                                '이 지역에 동승 핀이 없습니다.',
+                                style: TextStyle(color: AppColors.gray),
+                              ),
+                            ),
+                          ],
+                        )
+                      : ListView.builder(
+                          controller: scrollController,
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                          itemCount: displayPins.length,
+                          itemBuilder: (_, i) => _buildRideCard(displayPins[i]),
+                        ),
+                ),
+              ]),
+            );
+          },
+        ),
+    ]);
+  } // 🔴 _buildMapWithSheet 함수는 여기서 완전히 끝납니다! 🔴
 
     // 🔴 _buildMapWithSheet와 완전히 독립된 새로운 함수입니다! 🔴
     Widget _buildMapPlaceholder() {
@@ -614,7 +665,7 @@ class _HomeTabState extends State<HomeTab> {
   }
 
   // -- 시트 헤더 --
-  Widget _buildSheetHeader() {
+  Widget _buildSheetHeader({required int sheetListCount}) {
     final pinData = _activePinData;
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
@@ -643,7 +694,7 @@ class _HomeTabState extends State<HomeTab> {
               const Text('동승 모집 목록',
                   style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.secondary)),
               if (pinData != null)
-                Text('${pinData.dept} 주변 ${_visiblePins.length}팀',
+                Text('${pinData.dept} 주변 $sheetListCount팀',
                     style: const TextStyle(fontSize: 11, color: AppColors.gray)),
             ],
           ),
@@ -676,50 +727,13 @@ class _HomeTabState extends State<HomeTab> {
     );
   }
 
-  // -- 동승 카드 --
+  // -- 동승 카드 (매칭 탭 검색 카드와 동일한 지도 핀 모집글 레이아웃) --
   Widget _buildRideCard(RidePin pin) {
-    String normalizeSeatCode(String raw) {
-      switch (raw) {
-        case '조수석':
-          return 'FRONT_PASSENGER';
-        case '왼쪽 창가':
-          return 'REAR_LEFT';
-        case '가운데':
-          return 'REAR_MIDDLE';
-        case '오른쪽 창가':
-          return 'REAR_RIGHT';
-        default:
-          return raw.toUpperCase();
-      }
-    }
-
-    final takenSeatSet = pin.takenSeats.map(normalizeSeatCode).toSet();
-    const seatOrder = [
-      'FRONT_PASSENGER',
-      'REAR_LEFT',
-      'REAR_MIDDLE',
-      'REAR_RIGHT',
-    ];
-
-    bool isSeatTakenByIndex(int index) {
-      if (index >= pin.max) return false;
-      if (takenSeatSet.isEmpty) return index < pin.cur;
-      final seatCode = seatOrder[index];
-      return takenSeatSet.contains(seatCode);
-    }
-
     final isSelected = _selectedRideId == pin.id;
-
-    // 현재 지도 중심으로부터의 거리
-    final distanceM = pin.distanceTo(_mapCenterLat, _mapCenterLng);
-    final distanceText = distanceM < 1000
-        ? '${distanceM.toInt()}m'
-        : '${(distanceM / 1000).toStringAsFixed(1)}km';
 
     return GestureDetector(
       onTap: () {
         setState(() => _selectedRideId = isSelected ? null : pin.id);
-        // 선택된 카드의 핀 위치로 지도 이동
         if (!isSelected) {
           _mapController?.setCenter(LatLng(pin.lat, pin.lng));
           _mapController?.setLevel(4);
@@ -727,7 +741,7 @@ class _HomeTabState extends State<HomeTab> {
       },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        margin: const EdgeInsets.only(bottom: 10),
+        margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: isSelected ? AppColors.primaryLight : Colors.white,
@@ -740,134 +754,218 @@ class _HomeTabState extends State<HomeTab> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(children: [
-              Container(
-                width: 44, height: 44,
-                decoration: BoxDecoration(
-                  color: AppColors.bg, shape: BoxShape.circle,
-                  border: Border.all(color: AppColors.border),
-                ),
-                child: const Icon(Icons.person, color: AppColors.gray, size: 26),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(children: [
-                      Text('@${pin.hostId}',
-                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.secondary)),
-                      const SizedBox(width: 6),
-                      // 거리 표시
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: AppColors.bg, borderRadius: BorderRadius.circular(100),
-                          border: Border.all(color: AppColors.border),
-                        ),
-                        child: Text('📍 $distanceText',
-                            style: const TextStyle(fontSize: 9, color: AppColors.gray)),
-                      ),
-                    ]),
-                    const SizedBox(height: 4),
-                    Row(children: [
-                      Flexible(child: Text(pin.dept,
-                          style: const TextStyle(fontSize: 12, color: AppColors.primary, fontWeight: FontWeight.w600),
-                          overflow: TextOverflow.ellipsis)),
-                      const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 4),
-                        child: Text('→', style: TextStyle(color: AppColors.textSub, fontWeight: FontWeight.w700)),
-                      ),
-                      Flexible(child: Text(pin.dest,
-                          style: const TextStyle(fontSize: 12, color: AppColors.secondary),
-                          overflow: TextOverflow.ellipsis)),
-                    ]),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(10)),
-                child: Column(children: [
-                  const Text('출발', style: TextStyle(fontSize: 9, color: Colors.white70)),
-                  Text(pin.time, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Colors.white)),
-                ]),
-              ),
-            ]),
-            const SizedBox(height: 10),
-            Row(children: [
-              ...List.generate(pin.max, (j) => Container(
-                width: 22, height: 22, margin: const EdgeInsets.only(right: 4),
-                decoration: BoxDecoration(
-                  color: isSeatTakenByIndex(j) ? AppColors.primary : AppColors.bg,
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: isSeatTakenByIndex(j) ? AppColors.primary : AppColors.border),
-                ),
-                child: isSeatTakenByIndex(j) ? const Icon(Icons.person, color: Colors.white, size: 13) : null,
-              )),
-              const SizedBox(width: 6),
-              Text('${pin.cur}/${pin.max}명', style: const TextStyle(fontSize: 11, color: AppColors.gray)),
-              if (pin.isFull)
+            Row(
+              children: [
                 Container(
-                  margin: const EdgeInsets.only(left: 6),
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(color: AppColors.bg, borderRadius: BorderRadius.circular(100)),
-                  child: const Text('마감', style: TextStyle(fontSize: 10, color: AppColors.gray, fontWeight: FontWeight.w700)),
+                  width: 44,
+                  height: 44,
+                  decoration: const BoxDecoration(
+                    color: AppColors.bg,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.person, color: AppColors.gray, size: 26),
                 ),
-            ]),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '@${pin.hostId}',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.secondary,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              pin.dept,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: AppColors.primary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 4),
+                            child: Text(
+                              '→',
+                              style: TextStyle(
+                                color: AppColors.secondary,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          Flexible(
+                            child: Text(
+                              pin.dest,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: AppColors.secondary,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Column(
+                    children: [
+                      const Text('출발', style: TextStyle(fontSize: 9, color: Colors.white70)),
+                      Text(
+                        pin.time,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                ...List.generate(
+                  pin.max,
+                  (j) => Container(
+                    width: 22,
+                    height: 22,
+                    margin: const EdgeInsets.only(right: 4),
+                    decoration: BoxDecoration(
+                      color: j < pin.cur ? AppColors.primary : AppColors.bg,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: j < pin.cur ? AppColors.primary : AppColors.border,
+                      ),
+                    ),
+                    child: j < pin.cur
+                        ? const Icon(Icons.person, color: Colors.white, size: 13)
+                        : null,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  '${pin.cur}/${pin.max}명',
+                  style: const TextStyle(fontSize: 11, color: AppColors.gray),
+                ),
+                if (pin.isFull)
+                  Container(
+                    margin: const EdgeInsets.only(left: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: AppColors.bg,
+                      borderRadius: BorderRadius.circular(100),
+                    ),
+                    child: const Text(
+                      '마감',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: AppColors.gray,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
             AnimatedSize(
               duration: const Duration(milliseconds: 220),
-              child: isSelected ? Column(children: [
-                const SizedBox(height: 12),
-                const Divider(height: 1, color: AppColors.border),
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: pin.isMine || pin.isFull
-                            ? const Color(0xFFE5E7EB)
-                            : AppColors.primary,
-                        disabledBackgroundColor: const Color(0xFFE5E7EB),
-                        disabledForegroundColor: AppColors.gray,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        elevation: 0,
-                      ),
-                      onPressed: pin.isMine || pin.isFull
-                          ? null
-                          : () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => RideJoinScreen(
-                                    pin: {
-                                      'id': pin.id,
-                                      'hostId': pin.hostId,
-                                      'dept': pin.dept,
-                                      'dest': pin.dest,
-                                      'time': pin.time,
-                                      'max': pin.max,
-                                      'cur': pin.cur,
-                                      'takenSeats': pin.takenSeats,
-                                    },
+              child: isSelected
+                  ? Column(
+                      children: [
+                        const SizedBox(height: 12),
+                        const Divider(height: 1, color: AppColors.border),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ListenableBuilder(
+                            listenable: globalActiveRideState,
+                            builder: (context, _) {
+                              final int tripId =
+                                  int.tryParse(pin.id.toString()) ?? 0;
+                              final bool isAlreadyJoined =
+                                  globalActiveRideState.waitingPins
+                                          .any((p) => p.id == tripId) ||
+                                      globalActiveRideState.myPins
+                                          .any((p) => p.id == tripId);
+
+                              return ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: pin.isMine ||
+                                          pin.isFull ||
+                                          isAlreadyJoined
+                                      ? const Color(0xFFE5E7EB)
+                                      : AppColors.primary,
+                                  disabledBackgroundColor:
+                                      const Color(0xFFE5E7EB),
+                                  disabledForegroundColor: AppColors.gray,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 12,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  elevation: 0,
+                                ),
+                                onPressed: pin.isMine ||
+                                        pin.isFull ||
+                                        isAlreadyJoined
+                                    ? null
+                                    : () {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) => RideJoinScreen(
+                                              pin: {
+                                                'id': pin.id,
+                                                'hostId': pin.hostId,
+                                                'dept': pin.dept,
+                                                'dest': pin.dest,
+                                                'time': pin.time,
+                                                'max': pin.max,
+                                                'cur': pin.cur,
+                                                'takenSeats': pin.takenSeats,
+                                              },
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                child: Text(
+                                  pin.isMine
+                                      ? '내가 생성한 모집글입니다'
+                                      : isAlreadyJoined
+                                          ? '이미 참여한 핀입니다'
+                                          : pin.isFull
+                                              ? '마감된 팀입니다'
+                                              : '참여하기',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
                                   ),
                                 ),
                               );
                             },
-                      child: Text(
-                        pin.isMine
-                            ? '내가 생성한 모집글입니다'
-                            : pin.isFull
-                                ? '마감된 팀입니다'
-                                : '참여하기',
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                    ),
-                ),
-              ]) : const SizedBox.shrink(),
+                          ),
+                        ),
+                      ],
+                    )
+                  : const SizedBox.shrink(),
             ),
           ],
         ),
