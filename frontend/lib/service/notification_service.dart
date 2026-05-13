@@ -1,7 +1,8 @@
 // lib/service/notification_service.dart
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:firebase_core/firebase_core.dart'; // 🌟 추가됨
-import 'package:firebase_messaging/firebase_messaging.dart'; // 🌟 추가됨
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'trip_service.dart';
 
 // 🌟 추가 1: 앱이 백그라운드(꺼진 상태)일 때 푸시를 처리하는 최상단 함수
 // 반드시 클래스 바깥(최상단)에 위치해야 합니다.
@@ -67,7 +68,12 @@ class NotificationService {
     // 백엔드에서 보낼 때 data 영역에 'room_id': '123' 형태로 보낸다고 가정
     final String? roomIdStr = message.data['room_id'];
     final int? roomId = int.tryParse(roomIdStr ?? '');
+    final String? type = message.data['type'];
 
+
+    if (type == 'TRIP_JOIN' || type == 'TRIP_LEAVE' || type == 'TRIP_DELETED') {
+      TripService.notifyTripsChanged();
+    }
     // 💡 핵심: 지금 메시지가 온 채팅방을 내가 켜놓고 보고 있다면? -> 알림 안 띄움!
     if (roomId != null && roomId == currentActiveRoomId) {
       return;
