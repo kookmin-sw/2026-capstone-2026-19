@@ -9,6 +9,8 @@ from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from chat.models import ChatRoom, ChatMessage
 from settlements.models import Settlement
+from accounts.models import User  # 유저 모델
+from accounts.utils import send_fcm_notification
 
 
 class TripCreateListView(APIView):
@@ -89,10 +91,15 @@ class TripJoinView(APIView):
     def post(self, request, pk):
         try:
             trip = Trip.objects.get(pk=pk)
+
+            # ✅ 올바른 위치: DB에서 불러온 직후, try 블록 안에서 검사
+            if trip.leader_user == request.user:
+                return Response({"message": "방장은 이미 참여 중입니다."}, status=status.HTTP_400_BAD_REQUEST)
+
         except Trip.DoesNotExist:
             return Response({"message": "존재하지 않는 핀입니다."}, status=status.HTTP_404_NOT_FOUND)
 
-        # 🌟 1. 현재 참여 인원 계산 (시리얼라이저의 get_current_count 로직과 동일하게)
+        # 1. 현재 참여 인원 계산
         current_joined_count = trip.trip_participants.filter(status="JOINED").count()
 
         # 2. 핀 상태 및 정원 검사
@@ -123,92 +130,105 @@ class TripJoinView(APIView):
 
         # 5. 트랜잭션으로 참여자 등록
         try:
-            with transaction.atomic():
-                existing_participant = TripParticipant.objects.filter(
-                    trip=trip,
-                    user=request.user,
-                ).first()
+            # ✅ 들여쓰기 라인 통일
+            room_info = None
+            target_user_ids = []
+            system_text = ""
 
+            with transaction.atomic():
+                # 1. 참여자 등록/업데이트
+                existing_participant = TripParticipant.objects.filter(trip=trip, user=request.user).first()
                 if existing_participant:
                     existing_participant.role = TripParticipant.RoleChoices.MEMBER
                     existing_participant.seat_position = django_seat
                     existing_participant.status = TripParticipant.StatusChoices.JOINED
                     existing_participant.left_at = None
-                    existing_participant.save(
-                        update_fields=["role", "seat_position", "status", "left_at"]
-                    )
+                    existing_participant.save(update_fields=["role", "seat_position", "status", "left_at"])
                 else:
                     TripParticipant.objects.create(
-                        trip=trip,
-                        user=request.user,
-                        role=TripParticipant.RoleChoices.MEMBER,
-                        seat_position=django_seat,
-                        status=TripParticipant.StatusChoices.JOINED,
+                        trip=trip, user=request.user, role=TripParticipant.RoleChoices.MEMBER,
+                        seat_position=django_seat, status=TripParticipant.StatusChoices.JOINED
                     )
 
+                # 2. 시스템 메시지 저장
                 room = ChatRoom.objects.filter(trip=trip).first()
-
                 if room:
                     system_text = f"@{request.user.username} 님이 참여하였습니다."
-
                     system_message = ChatMessage.objects.create(
-                        room=room,
-                        sender_user=request.user,
-                        message=system_text,
+                        room=room, sender_user=request.user, message=system_text,
                         message_type=ChatMessage.MessageTypeChoices.SYSTEM,
                     )
 
-                    channel_layer = get_channel_layer()
+                    room_info = {
+                        "id": room.id,
+                        "message_id": system_message.id,
+                        "sent_at": system_message.sent_at.isoformat()
+                    }
 
-                    if channel_layer:
-                        async_to_sync(channel_layer.group_send)(
-                            f"chat_{room.id}",
-                            {
-                                "type": "broadcast_message",
-                                "message_type": "system_message",
-                                "message": system_text,
-                                "sender": request.user.username,
-                                "sender_user_id": request.user.id,
-                                "message_id": system_message.id,
-                                "sent_at": system_message.sent_at.isoformat(),
-                            },
-                        )
+                    user_ids = set()
+                    if trip.leader_user_id:
+                        user_ids.add(trip.leader_user_id)
+                    joined_user_ids = trip.trip_participants.filter(status="JOINED").values_list("user_id", flat=True)
+                    user_ids.update(joined_user_ids)
 
-                        user_ids = set()
+                    target_user_ids = [uid for uid in user_ids if uid != request.user.id]
 
-                        if trip.leader_user_id:
-                            user_ids.add(trip.leader_user_id)
-
-                        joined_user_ids = trip.trip_participants.filter(
-                            status=TripParticipant.StatusChoices.JOINED,
-                        ).values_list("user_id", flat=True)
-
-                        user_ids.update(joined_user_ids)
-
-                        for user_id in user_ids:
-                            async_to_sync(channel_layer.group_send)(
-                                f"user_{user_id}",
-                                {
-                                    "type": "chat_room_updated",
-                                    "room_id": room.id,
-                                    "last_message": system_text,
-                                    "message_type": "SYSTEM",
-                                    "sender": request.user.username,
-                                    "sender_user_id": request.user.id,
-                                    "sent_at": system_message.sent_at.isoformat(),
-                                },
-                            )
-
-                # 정원이 다 찼다면 모집 완료(FULL)로 변경
+                # 3. 정원 확인 및 핀 상태 변경
                 if (current_joined_count + 1) >= trip.capacity:
                     trip.status = Trip.StatusChoices.FULL
                     trip.save(update_fields=["status"])
+
+            # ---------------------------------------------------------
+            # 🚀 트랜잭션 밖 비동기 알림 처리
+            # ---------------------------------------------------------
+            if room_info:
+                channel_layer = get_channel_layer()
+                if channel_layer:
+                    async_to_sync(channel_layer.group_send)(
+                        f"chat_{room_info['id']}",
+                        {
+                            "type": "broadcast_message",
+                            "message_type": "system_message",
+                            "message": system_text,
+                            "sender": request.user.username,
+                            "sender_user_id": request.user.id,
+                            "message_id": room_info['message_id'],
+                            "sent_at": room_info['sent_at'],
+                        },
+                    )
+
+                    all_active_ids = target_user_ids + [request.user.id]
+                    for user_id in all_active_ids:
+                        async_to_sync(channel_layer.group_send)(
+                            f"user_{user_id}",
+                            {
+                                "type": "chat_room_updated",
+                                "room_id": room_info['id'],
+                                "last_message": system_text,
+                                "message_type": "SYSTEM",
+                                "sender": request.user.username,
+                                "sender_user_id": request.user.id,
+                                "sent_at": room_info['sent_at'],
+                            },
+                        )
+
+                if target_user_ids:
+                    from accounts.models import User
+                    from accounts.utils import send_fcm_notification
+
+                    targets = User.objects.filter(id__in=target_user_ids).exclude(fcm_token__isnull=True).exclude(fcm_token="")
+                    for target in targets:
+                        send_fcm_notification(
+                            user=target,
+                            title="새로운 동승자 참여",
+                            body=system_text,
+                            data={"room_id": str(room_info['id']), "type": "TRIP_JOIN"}
+                        )
 
             return Response({"success": True, "message": "참여가 완료되었습니다."}, status=status.HTTP_200_OK)
 
         except Exception as e:
             return Response({'message': f'참여 처리 중 오류가 발생했습니다: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
 
 class MyTripListView(APIView):
     """내가 방장이거나, 멤버로 참여 중인 모든 동승 내역 조회"""
@@ -261,7 +281,9 @@ class TripStatusUpdateView(APIView):
         # 권한 확인: 방장만 삭제 가능
         if trip.leader_user != request.user:
             return Response({"message": "삭제 권한이 없습니다."}, status=status.HTTP_403_FORBIDDEN)
-
+        from settlements.models import Settlement
+        if Settlement.objects.filter(trip=trip).exists():
+            return Response({"message": "정산이 생성된 매칭은 삭제할 수 없습니다."}, status=status.HTTP_409_CONFLICT)
         # 핀(방) 삭제
         trip.delete()
         # 성공 시 204 No Content 반환 (service.dart에서 이 코드를 기다림)
@@ -278,29 +300,16 @@ class TripLeaveView(APIView):
         except Trip.DoesNotExist:
             return Response({"detail": "존재하지 않는 핀입니다."}, status=status.HTTP_404_NOT_FOUND)
 
+        # 방장 체크 및 정산 여부 체크 (기존과 동일)
         if trip.leader_user_id == user.id:
-            return Response(
-                {"detail": "방장은 참여 취소할 수 없습니다. 핀 삭제 또는 모집 완료를 이용해주세요."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
+            return Response({"detail": "방장은 참여 취소할 수 없습니다."}, status=status.HTTP_400_BAD_REQUEST)
         if Settlement.objects.filter(trip=trip).exists():
-            return Response(
-                {"detail": "정산이 생성된 이후에는 참여 취소할 수 없습니다."},
-                status=status.HTTP_409_CONFLICT,
-            )
+            return Response({"detail": "정산 생성 이후 취소 불가"}, status=status.HTTP_409_CONFLICT)
 
         try:
-            participant = TripParticipant.objects.get(
-                trip=trip,
-                user=user,
-                status=TripParticipant.StatusChoices.JOINED,
-            )
+            participant = TripParticipant.objects.get(trip=trip, user=user, status="JOINED")
         except TripParticipant.DoesNotExist:
-            return Response(
-                {"detail": "현재 참여 중인 매칭이 아닙니다."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({"detail": "참여 중인 매칭이 아닙니다."}, status=status.HTTP_400_BAD_REQUEST)
 
         released_seat = participant.seat_position
 
@@ -310,21 +319,32 @@ class TripLeaveView(APIView):
             participant.left_at = timezone.now()
             participant.save(update_fields=["status", "seat_position", "left_at"])
 
-            joined_count = TripParticipant.objects.filter(
-                trip=trip,
-                status=TripParticipant.StatusChoices.JOINED,
-            ).count()
+            joined_count = TripParticipant.objects.filter(trip=trip, status="JOINED").count()
 
             if joined_count < trip.capacity and trip.status in [Trip.StatusChoices.FULL, Trip.StatusChoices.CLOSED]:
                 trip.status = Trip.StatusChoices.OPEN
                 trip.save(update_fields=["status"])
 
-        return Response(
-            {
-                "detail": "매칭 참여가 취소되었습니다.",
-                "trip_id": trip.id,
-                "participant_status": participant.status,
-                "released_seat": released_seat,
-            },
-            status=status.HTTP_200_OK,
-        )
+        # 🚀 알림 발송 (트랜잭션 밖에서 처리)
+        room = ChatRoom.objects.filter(trip=trip).first()
+        if room:
+            leave_text = f"@{user.username} 님이 참여를 취소했습니다."
+            active_user_ids = list(trip.trip_participants.filter(status="JOINED").values_list("user_id", flat=True))
+            if trip.leader_user_id:
+                active_user_ids.append(trip.leader_user_id)
+
+            targets = User.objects.filter(id__in=set(active_user_ids)).exclude(fcm_token__isnull=True).exclude(fcm_token="")
+            for target in targets:
+                send_fcm_notification(
+                    user=target,
+                    title="참여 취소 알림",
+                    body=leave_text,
+                    data={"room_id": str(room.id), "type": "TRIP_LEAVE"}
+                )
+
+        return Response({
+            "detail": "매칭 참여가 취소되었습니다.",
+            "trip_id": trip.id,
+            "participant_status": participant.status,
+            "released_seat": released_seat,
+        }, status=status.HTTP_200_OK)

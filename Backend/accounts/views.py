@@ -259,6 +259,7 @@ class WithdrawView(APIView):
             )
 
         user.is_active = False
+        user.fcm_token = None
         user.save()
         return Response({
             "is_blocked": is_blocked,
@@ -289,7 +290,14 @@ class LogoutView(APIView):
 
     def post(self, request):
         try:
-            request.user.auth_token.delete()
+            user = request.user
+            # 1. FCM 토큰 삭제 (로그아웃한 기기로 알림 방지)
+            user.fcm_token = None
+            user.save()
+
+            # 2. 인증 토큰 삭제
+            user.auth_token.delete()
+
             return Response({"success": True, "message": "성공적으로 로그아웃 되었습니다."}, status=status.HTTP_200_OK)
         except Exception:
             return Response({"success": False, "message": "로그아웃 처리 중 오류 발생"}, status=status.HTTP_400_BAD_REQUEST)
@@ -384,4 +392,26 @@ class UserProfileView(APIView):
                 # 📍 추가: DB에 추가한 인증 필드값을 내려줍니다.
                 'is_phone_verified': getattr(user, 'is_phone_verified', False),
             }
+        }, status=status.HTTP_200_OK)
+class UpdateFCMTokenView(APIView):
+    """
+    사용자의 FCM 기기 토큰을 업데이트하는 뷰
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        fcm_token = request.data.get('fcm_token')
+        if not fcm_token:
+            return Response(
+                {'success': False, 'message': 'FCM 토큰이 없습니다.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        user = request.user
+        user.fcm_token = fcm_token
+        user.save()
+
+        return Response({
+            'success': True,
+            'message': 'FCM 토큰이 성공적으로 업데이트되었습니다.'
         }, status=status.HTTP_200_OK)
