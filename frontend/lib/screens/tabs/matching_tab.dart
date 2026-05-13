@@ -200,7 +200,15 @@ class _MatchingTabState extends State<MatchingTab> with SingleTickerProviderStat
     final isMine = pin.isMine;
     final isSelected = _selectedCardId == pin.id;
 
-    return GestureDetector(
+    return ListenableBuilder(
+      listenable: globalActiveRideState,
+      builder: (context, _) {
+        final int tripId = int.tryParse(pin.id) ?? 0;
+        final isAlreadyJoined =
+            globalActiveRideState.waitingPins.any((p) => p.id == tripId) ||
+            globalActiveRideState.myPins.any((p) => p.id == tripId);
+
+        return GestureDetector(
       onTap: () => setState(() => _selectedCardId = isSelected ? null : pin.id),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
@@ -241,8 +249,8 @@ class _MatchingTabState extends State<MatchingTab> with SingleTickerProviderStat
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: isMine || isFull ? AppColors.gray : AppColors.primary, padding: const EdgeInsets.symmetric(vertical: 13), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                  onPressed: isMine || isFull ? null : () async {
+                  style: ElevatedButton.styleFrom(backgroundColor: isMine || isFull || isAlreadyJoined ? AppColors.gray : AppColors.primary, padding: const EdgeInsets.symmetric(vertical: 13), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                  onPressed: isMine || isFull || isAlreadyJoined ? null : () async {
                       await Navigator.push(
                         context,
                         MaterialPageRoute(
@@ -265,7 +273,7 @@ class _MatchingTabState extends State<MatchingTab> with SingleTickerProviderStat
                       }
                     },
                     child: Text(
-                      isMine ? '내가 생성한 모집글입니다' : isFull ? '마감' : '참여하기',
+                      isMine ? '내가 생성한 모집글입니다' : isAlreadyJoined ? '이미 참여한 핀입니다' : isFull ? '마감' : '참여하기',
                       style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.white),
                     ),
                   ),
@@ -274,6 +282,8 @@ class _MatchingTabState extends State<MatchingTab> with SingleTickerProviderStat
           ),
         ]),
       ),
+    );
+      },
     );
   }
 
@@ -551,8 +561,12 @@ class _MatchingTabState extends State<MatchingTab> with SingleTickerProviderStat
       return;
     }
     final kakaoLink = _kakaoCtrl.text.trim();
-    if (kakaoLink.isEmpty || !kakaoLink.startsWith('http')) {
-      _showSnackBar('유효한 카카오페이 링크를 입력해주세요. (http로 시작)', AppColors.red);
+    final kakaoPayLinkPattern = RegExp(r'^https?://qr\.kakaopay\.com/');
+    if (kakaoLink.isEmpty || !kakaoPayLinkPattern.hasMatch(kakaoLink)) {
+      _showSnackBar(
+        '유효한 카카오페이 링크를 입력해주세요. (http(s)://qr.kakaopay.com/ 로 시작)',
+        AppColors.red,
+      );
       return;
     }
 
@@ -734,10 +748,20 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final pin = widget.pin;
-    final int cur = pin['cur'] as int;
-    final int max = pin['max'] as int;
-    final bool isFull = cur >= max;
+    return ListenableBuilder(
+      listenable: globalActiveRideState,
+      builder: (context, _) {
+        final pin = widget.pin;
+        final int cur = pin['cur'] as int;
+        final int max = pin['max'] as int;
+        final bool isFull = cur >= max;
+
+        final rawTripId = pin['id'];
+        final int tripId = rawTripId is int
+            ? rawTripId
+            : int.parse(rawTripId.toString());
+        final isAlreadyJoined = globalActiveRideState.waitingPins.any((p) => p.id == tripId) ||
+            globalActiveRideState.myPins.any((p) => p.id == tripId);
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -924,21 +948,29 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
               width: double.infinity,
               child: ElevatedButton(
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: (isFull || _selectedSeat == null) ? AppColors.gray : AppColors.primary,
+                  backgroundColor: (isFull || _selectedSeat == null || isAlreadyJoined)
+                      ? AppColors.gray
+                      : AppColors.primary,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                   elevation: 0,
                 ),
-                onPressed: (isFull || _selectedSeat == null || _isLoading) ? null : _handleJoin,
+                onPressed: (isFull || _selectedSeat == null || _isLoading || isAlreadyJoined)
+                    ? null
+                    : _handleJoin,
                 child: _isLoading
                   ? const SizedBox(
                       width: 20, height: 20,
                       child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                   : Text(
-                      isFull ? '마감된 팀입니다'
-                          : _selectedSeat == null ? '좌석을 선택해 주세요'
-                          : '참여하기',
+                      isAlreadyJoined
+                          ? '이미 참여한 핀입니다'
+                          : isFull
+                              ? '마감된 팀입니다'
+                              : _selectedSeat == null
+                                  ? '좌석을 선택해 주세요'
+                                  : '참여하기',
                       style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
                     ),
               ),
@@ -947,6 +979,8 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
           ],
         ),
       ),
+    );
+      },
     );
   }
 
