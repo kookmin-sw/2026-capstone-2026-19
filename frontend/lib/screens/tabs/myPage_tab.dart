@@ -6,6 +6,9 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../utils/colors.dart';
 import '../../service/auth_service.dart';
 import '../../service/auth_session.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import '../../service/trip_service.dart';
 
 // ============================================================
 // 공통 컴포넌트: AppBar
