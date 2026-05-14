@@ -88,6 +88,7 @@ class _MatchingTabState extends State<MatchingTab> with SingleTickerProviderStat
           lat: double.parse(item['depart_lat'].toString()),
           lng: double.parse(item['depart_lng'].toString()),
           isMine: item['is_mine'] == true,
+          isJoined: item['is_joined'] == true,
           takenSeats: takenSeats,
         );}).toList();
         _isFetching = false;
@@ -159,7 +160,7 @@ class _MatchingTabState extends State<MatchingTab> with SingleTickerProviderStat
                              pin.dept.contains(_searchQuery) ||
                              pin.dest.contains(_searchQuery);
 
-        return matchesSearch && !pin.isMine;
+        return matchesSearch && !pin.isMine && !pin.isJoined;
       }).toList();
 
       return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -597,7 +598,9 @@ class _MatchingTabState extends State<MatchingTab> with SingleTickerProviderStat
       } else {
         print("❌ 채팅방 생성 실패: ${chatResult['message']}");
       }
+      if (!mounted) return;
       await _fetchTrips();
+      if (!mounted) return;
       TripService.tripsRefreshNotifier.notifyListeners();
 
       setState(() => _pinCreated = true);
@@ -1037,6 +1040,8 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
         token: AuthSession.token ?? '',
         tripId: tripId,
       );
+      if (!mounted) return;
+
 
       TripService.tripsRefreshNotifier.notifyListeners();
       TripService.chatRoomsRefreshNotifier.notifyListeners();

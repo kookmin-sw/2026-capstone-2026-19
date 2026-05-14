@@ -267,6 +267,17 @@ class TripStatusUpdateView(APIView):
         if new_status in valid_statuses:
             trip.status = new_status
             trip.save()
+# 🚀 [추가] 실시간 웹소켓 신호 발송
+            channel_layer = get_channel_layer()
+            if channel_layer:
+                async_to_sync(channel_layer.group_send)(
+                    f"trip_{trip.id}",  # 프론트엔드 ActiveTab에서 구독 중인 채널
+                    {
+                        "type": "trip_update", # 소켓 컨슈머의 메서드명과 매칭
+                        "status": trip.status,
+                        "message": "status_updated"
+                    }
+                )
             return Response({"success": True, "status": trip.status}, status=status.HTTP_200_OK)
 
         return Response({"message": "잘못된 상태 값입니다."}, status=status.HTTP_400_BAD_REQUEST)
@@ -285,7 +296,19 @@ class TripStatusUpdateView(APIView):
         if Settlement.objects.filter(trip=trip).exists():
             return Response({"message": "정산이 생성된 매칭은 삭제할 수 없습니다."}, status=status.HTTP_409_CONFLICT)
         # 핀(방) 삭제
+        trip_id = trip.id
         trip.delete()
+# 🚀 [추가] 실시간 웹소켓 신호 발송 (방이 없어졌음을 알림)
+        channel_layer = get_channel_layer()
+        if channel_layer:
+            async_to_sync(channel_layer.group_send)(
+                f"trip_{trip_id}",
+                {
+                    "type": "trip_update",
+                    "status": "DELETED",
+                    "message": "trip_deleted"
+                }
+            )
         # 성공 시 204 No Content 반환 (service.dart에서 이 코드를 기다림)
         return Response(status=status.HTTP_204_NO_CONTENT)
 

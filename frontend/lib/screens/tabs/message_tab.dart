@@ -273,6 +273,11 @@ class _MessageTabState extends State<MessageTab> {
           final bool isMine = sender.isNotEmpty && sender == _currentUsername;
 
           if (!isMine && roomId != null && roomId != _openedRoomId && mounted) {
+
+            NotificationService.showOngoingRide(
+              title: '💬 $sender',
+              body: lastMsg,
+            );
             setState(() {
               _roomsWithNewMessage.add(roomId);
             });

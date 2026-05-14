@@ -28,6 +28,7 @@ class RidePin {
   final int max, cur; // 최대 모집 인원, 현재 참여 인원
   final double lat, lng; // 실제 좌표
   final bool isMine;
+  final bool isJoined;
   final List<String> takenSeats;
 
   const RidePin({
@@ -36,6 +37,7 @@ class RidePin {
     required this.max, required this.cur,
     required this.lat, required this.lng,
     this.isMine = false,
+    this.isJoined = false,
     this.takenSeats = const [],
   });
 
@@ -126,6 +128,7 @@ class _HomeTabState extends State<HomeTab> {
         lat: double.tryParse(trip['depart_lat'].toString()) ?? 0.0,
         lng: double.tryParse(trip['depart_lng'].toString()) ?? 0.0,
         isMine: trip['is_mine'] == true || (trip['host_nickname'] ?? hostId).toString() == (AuthSession.username ?? ''),
+        isJoined: trip['is_joined'] == true,
         takenSeats: (trip['taken_seats'] as List? ?? []).map((s) => s.toString()).toList(),
       );
     }).toList();
@@ -246,7 +249,7 @@ class _HomeTabState extends State<HomeTab> {
       _mapCenterLng = centerLng;
       _visiblePins = globalPins.where((pin) {
         final distance = pin.distanceTo(centerLat, centerLng);
-        return distance <= radiusMeters;
+        return distance <= radiusMeters && !pin.isMine && !pin.isJoined;
       }).toList();
     });
   }
@@ -257,6 +260,8 @@ class _HomeTabState extends State<HomeTab> {
 
     // globalPins의 핀 마커 추가
     for (final pin in globalPins) {
+      if (pin.isJoined && !pin.isMine) continue;
+
       markers.add(Marker(
         markerId: pin.id,
         latLng: LatLng(pin.lat, pin.lng),

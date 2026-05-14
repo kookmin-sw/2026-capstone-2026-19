@@ -16,6 +16,7 @@ class TripSerializer(serializers.ModelSerializer):
     leader_user_id = serializers.IntegerField(source='leader_user.id', read_only=True)
     host_nickname = serializers.SerializerMethodField()
     is_mine = serializers.SerializerMethodField()
+    is_joined = serializers.SerializerMethodField()
     kakaopay_link = serializers.ReadOnlyField(source='payment_channel.kakaopay_link')
 
     # 🟢 2. 현재 이 핀에서 'JOINED' 상태인 참여자들의 좌석 리스트만 뽑기
@@ -29,7 +30,7 @@ class TripSerializer(serializers.ModelSerializer):
             'arrive_name', 'arrive_lat', 'arrive_lng',
             'depart_time', 'capacity', 'status', 'estimated_fare',
             'current_count', 'participants',
-            'leader_user_id', 'host_nickname', 'is_mine','taken_seats', 'kakaopay_link',
+            'leader_user_id', 'host_nickname', 'is_mine','is_joined','taken_seats', 'kakaopay_link',
         ]
 
     def get_current_count(self, obj):

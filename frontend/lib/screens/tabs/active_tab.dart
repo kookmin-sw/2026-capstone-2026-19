@@ -91,6 +91,7 @@ class ActiveRidePin {
 }
 
  class ActiveRideState extends ChangeNotifier {
+   bool _isDisposed = false;
    List<ActiveRidePin> _waitingPins = [];
    List<ActiveRidePin> _myPins = [];
    bool _isLoading = false;
@@ -145,6 +146,7 @@ class ActiveRidePin {
      notifyListeners();
      try {
        final data = await TripService.getMyTrips(token: AuthSession.token ?? '');
+       if (_isDisposed) return;
        final allPins = data.map((j) => ActiveRidePin.fromJson(j)).toList();
 
        _myPins = allPins.where((p) => p.isMine).toList();
@@ -152,12 +154,20 @@ class ActiveRidePin {
 
        final currentRide = activeRide;
        if (currentRide != null) {
-         NotificationService.showOngoingRide(
-           title: '🚖 TaxiMate 이용 중',
-           body: '${currentRide.time} 출발 | ${currentRide.dept} → ${currentRide.dest}',
-         );
-         // 실시간 감시 시작
+// ✅ 수정된 부분: 핀 상태가 '모집 완료(FULL)' 또는 '정산 중(CLOSED)'일 때만 알림 표시
+         if (currentRide.pinPhase == PinPhase.closed) {
+           NotificationService.showOngoingRide(
+             title: '🚖 TaxiMate 이용 중',
+             body: '${currentRide.time} 출발 | ${currentRide.dept} → ${currentRide.dest}',
+           );
+         } else {
+           // 아직 OPEN(모집 중) 상태라면 상단 알림을 띄우지 않음
+           NotificationService.cancelOngoingRide();
+         }
+
+         // 실시간 감시 시작 (상태 무관하게 웹소켓은 연결해야 방장의 '완료' 신호를 참여자가 받을 수 있음)
          initRealTimeListener(currentRide.id);
+
        } else {
          NotificationService.cancelOngoingRide();
          _stopListener();
@@ -165,8 +175,10 @@ class ActiveRidePin {
      } catch (e) {
        debugPrint('이용 중 데이터 로드 실패: $e');
      } finally {
-       _isLoading = false;
-       notifyListeners();
+       if (!_isDisposed) {
+         _isLoading = false;
+         notifyListeners();
+       }
      }
    }
 
@@ -198,6 +210,7 @@ class ActiveRidePin {
          token: AuthSession.token ?? '',
          tripId: tripId,
        );
+       success = result;
      } else {
        final result = await TripService.leaveTrip(
          token: AuthSession.token ?? '',
@@ -210,6 +223,7 @@ class ActiveRidePin {
 
    @override
    void dispose() {
+     _isDisposed = true;
      _stopListener();
      super.dispose();
    }
