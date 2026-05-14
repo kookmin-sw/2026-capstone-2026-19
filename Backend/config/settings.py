@@ -213,11 +213,25 @@ REST_FRAMEWORK = {
     ]
 }
 
-FIREBASE_KEY_PATH = os.path.join(BASE_DIR, 'serviceAccountKey.json')
-if os.path.exists(FIREBASE_KEY_PATH):
-    if not firebase_admin._apps:
+FIREBASE_SERVICE_ACCOUNT_JSON = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "")
+FIREBASE_KEY_PATH = os.path.join(BASE_DIR, "serviceAccountKey.json")
+
+if not firebase_admin._apps:
+    if FIREBASE_SERVICE_ACCOUNT_JSON:
+        try:
+            import json
+
+            firebase_cred_dict = json.loads(FIREBASE_SERVICE_ACCOUNT_JSON)
+            cred = credentials.Certificate(firebase_cred_dict)
+            firebase_admin.initialize_app(cred)
+            print("✅ Firebase Admin SDK가 환경변수로 초기화되었습니다.")
+        except Exception as e:
+            print(f"❌ Firebase 환경변수 초기화 실패: {e}")
+
+    elif os.path.exists(FIREBASE_KEY_PATH):
         cred = credentials.Certificate(FIREBASE_KEY_PATH)
         firebase_admin.initialize_app(cred)
-    print("✅ Firebase Admin SDK가 성공적으로 초기화되었습니다.")
-else:
-    print("❌ Firebase 키 파일을 찾을 수 없습니다. 경로를 확인해주세요.")
+        print("✅ Firebase Admin SDK가 로컬 키 파일로 초기화되었습니다.")
+
+    else:
+        print("❌ Firebase 키 정보를 찾을 수 없습니다.")

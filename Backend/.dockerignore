@@ -14,3 +14,6 @@ venv/
 
 # 로컬 DB (PostgreSQL을 쓸 테니 SQLite는 제외)
 db.sqlite3
+
+serviceAccountKey.json
+docker-compose.override.yml
