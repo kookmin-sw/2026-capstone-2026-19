@@ -1,3 +1,7 @@
+import json
+from channels.generic.websocket import AsyncWebsocketConsumer
+
+
 # chat/consumers.py 맨 아래에 추가하거나 trips/consumers.py에 작성
 class TripConsumer(AsyncWebsocketConsumer):
     async def connect(self):
