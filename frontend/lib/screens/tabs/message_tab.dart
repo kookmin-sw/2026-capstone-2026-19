@@ -268,6 +268,7 @@ class _MessageTabState extends State<MessageTab> {
           final int? roomId = decoded['room_id'] is int
               ? decoded['room_id'] as int
               : int.tryParse(decoded['room_id']?.toString() ?? '');
+          final String lastMsg = decoded['last_message']?.toString() ?? '';
 
           final String sender = decoded['sender']?.toString() ?? '';
           final bool isMine = sender.isNotEmpty && sender == _currentUsername;
@@ -1882,6 +1883,10 @@ void _scrollToBottomAfterLayout({bool jump = false, bool force = false}) {
         throw Exception(message);
       }
 
+      _channel?.sink.add(jsonEncode({
+        'type': 'system_message', // 백엔드 설정에 맞게 변경 가능 (예: 'trip_updated')
+        'message': '${widget.myNickname}님이 채팅방을 나갔습니다.',
+      }));
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
