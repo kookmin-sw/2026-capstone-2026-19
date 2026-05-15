@@ -13,6 +13,7 @@ import 'message_tab.dart';
 import '../../service/notification_service.dart';
 import 'dart:async'; // StreamSubscription 사용을 위해 추가
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'dart:convert';
 
 // ============================================================
 // 열거형 & 모델
@@ -1026,10 +1027,10 @@ class _ActiveTabState extends State<ActiveTab> with SingleTickerProviderStateMix
                 ActiveRideSheet(
                   state: _state,
                   onClose: () => setState(() => _showActiveDetail = false),
-                  onGoToChat: () {
+                  onGoToChat: () async {
                     final current = _state.activeRide;
                     if (current != null) {
-// 1. 서버에서 채팅방 ID를 찾아오는 동안 잠깐 로딩 화면을 띄웁니다.
+                      // 1. 서버에서 채팅방 ID를 찾아오는 동안 잠깐 로딩 화면을 띄웁니다.
                       showDialog(
                         context: context,
                         barrierDismissible: false,
@@ -1057,16 +1058,26 @@ class _ActiveTabState extends State<ActiveTab> with SingleTickerProviderStateMix
                         if (targetRoom != null && mounted) {
                           Navigator.push(context, MaterialPageRoute(
                             builder: (_) => ChatRoomScreen(
-                              room: targetRoom,
+                              room: targetRoom!, // 🌟 1. 느낌표(!) 추가
                               myNickname: AuthSession.username ?? '나',
                             )
                           ));
                         } else {
-                          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('채팅방을 찾을 수 없습니다.', backgroundColor: AppColors.red)));
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              // 🌟 2. backgroundColor를 Text 밖으로 이동!
+                              const SnackBar(content: Text('채팅방을 찾을 수 없습니다.'), backgroundColor: AppColors.red)
+                            );
+                          }
                         }
                       } catch (e) {
                         if (mounted) Navigator.pop(context); // 오류 나도 로딩창은 닫기
-                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('네트워크 오류가 발생했습니다.', backgroundColor: AppColors.red)));
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            // 🌟 3. backgroundColor를 Text 밖으로 이동!
+                            const SnackBar(content: Text('네트워크 오류가 발생했습니다.'), backgroundColor: AppColors.red)
+                          );
+                        }
                       }
                     }
                   },
