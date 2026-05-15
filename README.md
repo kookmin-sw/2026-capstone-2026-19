@@ -1,6 +1,6 @@
 # 🚕 Taxi Mate (Taxi-Sharing Matching Service)
 > **"함께 타고, 함께 아끼세요"** > 대학생들의 등하교 교통비 부담을 줄이고 편리한 이동을 돕는 택시 동승자 매칭 서비스
-
+22
 ---
 
 <br>
