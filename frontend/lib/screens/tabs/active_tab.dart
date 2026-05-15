@@ -10,6 +10,10 @@ import '../../utils/colors.dart';
 import '../../service/trip_service.dart';
 import '../../service/auth_session.dart';
 import 'message_tab.dart';
+import '../../service/notification_service.dart';
+import 'dart:async'; // StreamSubscription 사용을 위해 추가
+import 'package:web_socket_channel/web_socket_channel.dart';
+import 'dart:convert';
 
 // ============================================================
 // 열거형 & 모델
@@ -87,81 +91,156 @@ class ActiveRidePin {
   }
 }
 
-class ActiveRideState extends ChangeNotifier {
-  List<ActiveRidePin> _waitingPins = [];
-    List<ActiveRidePin> _myPins = [];
-    bool _isLoading = false;
+ class ActiveRideState extends ChangeNotifier {
+   bool _isDisposed = false;
+   List<ActiveRidePin> _waitingPins = [];
+   List<ActiveRidePin> _myPins = [];
+   bool _isLoading = false;
 
-    List<ActiveRidePin> get waitingPins => _waitingPins;
-    List<ActiveRidePin> get myPins => _myPins;
-    bool get isLoading => _isLoading;
+   // 🆕 실시간 통신을 위한 채널 변수 (웹/앱 공용)
+   WebSocketChannel? _channel;
+   StreamSubscription? _wsSubscription; // 🆕 메모리 누수 방지를 위한 구독 객체
 
-    // 📍 기존 home_tab.dart와의 호환성을 위해 이름을 activeRide로 유지합니다.
-    ActiveRidePin? get activeRide {
-      final allRides = [..._myPins, ..._waitingPins]
-        ..where((p) => p.phase != RidePhase.completed).toList()
-        ..sort((a, b) => a.departTime.compareTo(b.departTime));
-      if (allRides.isEmpty) return null;
-      return allRides.first;
-    }
+   List<ActiveRidePin> get waitingPins => _waitingPins;
+   List<ActiveRidePin> get myPins => _myPins;
+   bool get isLoading => _isLoading;
 
-  // 📍 1. 실제 데이터 로드
-  Future<void> fetchActiveRides() async {
-    _isLoading = true;
-    notifyListeners();
-    try {
-      final data = await TripService.getMyTrips(token: AuthSession.token ?? '');
-      final allPins = data.map((j) => ActiveRidePin.fromJson(j)).toList();
+   ActiveRidePin? get activeRide {
+     final allRides = [..._myPins, ..._waitingPins]
+       ..where((p) => p.phase != RidePhase.completed).toList()
+       ..sort((a, b) => a.departTime.compareTo(b.departTime));
+     if (allRides.isEmpty) return null;
+     return allRides.first;
+   }
 
-      _myPins = allPins.where((p) => p.isMine).toList();
-      _waitingPins = allPins.where((p) => !p.isMine).toList();
-    } catch (e) {
-      debugPrint('이용 중 데이터 로드 실패: $e');
-    } finally {
-      _isLoading = false;
-      notifyListeners();
-    }
-  }
+   // 🆕 1. 실시간 리스너 시작
+   void initRealTimeListener(int tripId) {
+     _stopListener(); // 중복 연결 방지
 
-  // 📍 2. 탑승 완료 처리 -> CLOSED 상태로 변경
-  Future<void> completeBoarding(int tripId) async {
-    final success = await TripService.updateTripStatus(
-      token: AuthSession.token ?? '',
-      tripId: tripId,
-      status: 'CLOSED',
-    );
-    if (success) await fetchActiveRides();
-  }
+     // Django Channels 주소 (본인의 서버 설정에 맞게 수정)
+     final wsUrl = 'ws://10.0.2.2:8000/ws/trip/$tripId/';
 
-  // 📍 3. 핀 모집 마감 -> FULL 상태로 변경
-  Future<void> closePinRecruit(int tripId) async {
-    final success = await TripService.updateTripStatus(
-      token: AuthSession.token ?? '',
-      tripId: tripId,
-      status: 'FULL',
-    );
-    if (success) await fetchActiveRides();
-  }
+     try {
+       _channel = WebSocketChannel.connect(Uri.parse(wsUrl)); // 변경된 패키지 적용
+       _wsSubscription = _channel!.stream.listen((message) { // 구독 객체에 저장
+         debugPrint('실시간 업데이트 신호 수신: $message');
+         fetchActiveRides(); // 신호 오면 즉시 갱신
+       }, onError: (err) {
+         debugPrint('웹소켓 에러 발생: $err');
+       });
+     } catch (e) {
+       debugPrint('웹소켓 연결 실패: $e');
+     }
+   }
 
-  // 📍 4. 핀 삭제 및 신청 취소
-  Future<void> deleteOrCancelTrip(int tripId, {required bool isMine}) async {
-    bool success = false;
-    if (isMine) {
-      success = await TripService.deleteTrip(
-        token: AuthSession.token ?? '',
-        tripId: tripId,
-      );
-    } else {
-      final result = await TripService.leaveTrip(
-        token: AuthSession.token ?? '',
-        tripId: tripId,
-      );
-      success = result['success'] == true;
-    }
-    if (success) await fetchActiveRides();
-  }
-}
+   // 🆕 2. 리스너 중지
+   void _stopListener() {
+     _wsSubscription?.cancel(); // 🆕 수신 스트림 먼저 취소
+     _wsSubscription = null;
+     _channel?.sink.close();
+     _channel = null;
+   }
 
+   // 📍 데이터 로드 및 리스너 자동 연결
+   Future<void> fetchActiveRides() async {
+     _isLoading = true;
+     notifyListeners();
+     try {
+       final data = await TripService.getMyTrips(token: AuthSession.token ?? '');
+       if (_isDisposed) return;
+       final allPins = data.map((j) => ActiveRidePin.fromJson(j)).toList();
+
+       _myPins = allPins.where((p) => p.isMine).toList();
+       _waitingPins = allPins.where((p) => !p.isMine).toList();
+
+       final currentRide = activeRide;
+       if (currentRide != null) {
+// ✅ 수정된 부분: 핀 상태가 '모집 완료(FULL)' 또는 '정산 중(CLOSED)'일 때만 알림 표시
+         if (currentRide.pinPhase == PinPhase.closed) {
+           NotificationService.showOngoingRide(
+             title: '🚖 TaxiMate 이용 중',
+             body: '${currentRide.time} 출발 | ${currentRide.dept} → ${currentRide.dest}',
+           );
+         } else {
+           // 아직 OPEN(모집 중) 상태라면 상단 알림을 띄우지 않음
+           NotificationService.cancelOngoingRide();
+         }
+
+         // 실시간 감시 시작 (상태 무관하게 웹소켓은 연결해야 방장의 '완료' 신호를 참여자가 받을 수 있음)
+         initRealTimeListener(currentRide.id);
+
+       } else {
+         NotificationService.cancelOngoingRide();
+         _stopListener();
+       }
+     } catch (e) {
+       debugPrint('이용 중 데이터 로드 실패: $e');
+     } finally {
+       if (!_isDisposed) {
+         _isLoading = false;
+         notifyListeners();
+       }
+     }
+   }
+
+   // 📍 2. 탑승 완료 처리 -> CLOSED 상태로 변경
+   Future<void> completeBoarding(int tripId) async {
+     final success = await TripService.updateTripStatus(
+       token: AuthSession.token ?? '',
+       tripId: tripId,
+       status: 'CLOSED',
+     );
+     if (success) {
+       await fetchActiveRides();
+       // 🌟 갱신 신호 발사!
+       _channel?.sink.add(jsonEncode({'type': 'trip_updated', 'message': '상태 업데이트'}));
+     }
+   }
+
+   // 📍 3. 핀 모집 마감 -> FULL 상태로 변경
+   Future<void> closePinRecruit(int tripId) async {
+     final success = await TripService.updateTripStatus(
+       token: AuthSession.token ?? '',
+       tripId: tripId,
+       status: 'FULL',
+     );
+     if (success) {
+       await fetchActiveRides();
+       // 🌟 갱신 신호 발사!
+       _channel?.sink.add(jsonEncode({'type': 'trip_updated', 'message': '상태 업데이트'}));
+     }
+   }
+
+   // 📍 4. 핀 삭제 및 신청 취소
+   Future<void> deleteOrCancelTrip(int tripId, {required bool isMine}) async {
+     bool success = false;
+     if (isMine) {
+       final result = await TripService.deleteTrip(
+         token: AuthSession.token ?? '',
+         tripId: tripId,
+       );
+       success = result['success'] == true;
+     } else {
+       final result = await TripService.leaveTrip(
+         token: AuthSession.token ?? '',
+         tripId: tripId,
+       );
+       success = result['success'] == true;
+     }
+     if (success) {
+       await fetchActiveRides();
+       // 🌟 갱신 신호 발사!
+       _channel?.sink.add(jsonEncode({'type': 'trip_updated', 'message': '상태 업데이트'}));
+     }
+   }
+
+   @override
+   void dispose() {
+     _isDisposed = true;
+     _stopListener();
+     super.dispose();
+   }
+ }
 final globalActiveRideState = ActiveRideState();
 
 // ============================================================
@@ -918,6 +997,7 @@ class _ActiveTabState extends State<ActiveTab> with SingleTickerProviderStateMix
   void dispose() {
     TripService.tripsRefreshNotifier.removeListener(_state.fetchActiveRides);
     _tabCtrl.dispose();
+    _state.dispose();
     super.dispose();
   }
 
@@ -947,10 +1027,58 @@ class _ActiveTabState extends State<ActiveTab> with SingleTickerProviderStateMix
                 ActiveRideSheet(
                   state: _state,
                   onClose: () => setState(() => _showActiveDetail = false),
-                  onGoToChat: () {
+                  onGoToChat: () async {
                     final current = _state.activeRide;
                     if (current != null) {
-                      Navigator.push(context, MaterialPageRoute(builder: (_) => ActiveTabChatBridge(hostId: current.hostId, dept: current.dept, dest: current.dest)));
+                      // 1. 서버에서 채팅방 ID를 찾아오는 동안 잠깐 로딩 화면을 띄웁니다.
+                      showDialog(
+                        context: context,
+                        barrierDismissible: false,
+                        builder: (_) => const Center(child: CircularProgressIndicator(color: AppColors.primary)),
+                      );
+
+                      try {
+                        // 2. 서버에서 내가 속한 전체 채팅방 목록을 가져옵니다.
+                        final data = await TripService.getChatRooms(token: AuthSession.token ?? '');
+                        final rooms = data.map((item) => ChatRoomModel.fromJson(item)).toList();
+
+                        // 3. 현재 이용 중인 핀(current.id)과 연결된 진짜 채팅방을 찾습니다.
+                        ChatRoomModel? targetRoom;
+                        for (var room in rooms) {
+                          if (room.tripId == current.id) {
+                            targetRoom = room;
+                            break;
+                          }
+                        }
+
+                        // 4. 로딩 화면 닫기
+                        if (mounted) Navigator.pop(context);
+
+                        // 5. 방을 찾았다면 진짜 채팅방(ChatRoomScreen)으로 이동!
+                        if (targetRoom != null && mounted) {
+                          Navigator.push(context, MaterialPageRoute(
+                            builder: (_) => ChatRoomScreen(
+                              room: targetRoom!, // 🌟 1. 느낌표(!) 추가
+                              myNickname: AuthSession.username ?? '나',
+                            )
+                          ));
+                        } else {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              // 🌟 2. backgroundColor를 Text 밖으로 이동!
+                              const SnackBar(content: Text('채팅방을 찾을 수 없습니다.'), backgroundColor: AppColors.red)
+                            );
+                          }
+                        }
+                      } catch (e) {
+                        if (mounted) Navigator.pop(context); // 오류 나도 로딩창은 닫기
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            // 🌟 3. backgroundColor를 Text 밖으로 이동!
+                            const SnackBar(content: Text('네트워크 오류가 발생했습니다.'), backgroundColor: AppColors.red)
+                          );
+                        }
+                      }
                     }
                   },
                 ),
@@ -1078,72 +1206,3 @@ class _ActiveTabState extends State<ActiveTab> with SingleTickerProviderStateMix
   Widget _emptyState({required IconData icon, required String title, required String sub}) => Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Container(width: 72, height: 72, decoration: const BoxDecoration(color: AppColors.primaryLight, shape: BoxShape.circle), child: Icon(icon, color: AppColors.primary, size: 36)), const SizedBox(height: 16), Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.secondary)), const SizedBox(height: 6), Text(sub, style: const TextStyle(fontSize: 13, color: AppColors.gray))]));
 }
 
-// ============================================================
-// 이용 중 탭 → 채팅방 브릿지 (유지)
-// ============================================================
-class ActiveTabChatBridge extends StatefulWidget {
-  final String hostId, dept, dest;
-  const ActiveTabChatBridge({super.key, required this.hostId, required this.dept, required this.dest});
-  @override
-  State<ActiveTabChatBridge> createState() => _ActiveTabChatBridgeState();
-}
-class _ActiveTabChatBridgeState extends State<ActiveTabChatBridge> {
-  final List<Map<String, dynamic>> _messages = [
-    {'isMe': false, 'userId': 'travel_kim', 'text': '안녕하세요! 강남역 2번 출구에서 14:30 출발 예정입니다.', 'time': '14:10', 'isSettlement': false},
-    {'isMe': false, 'userId': 'seoul_lee',  'text': '네 참여할게요! 카카오페이 링크 부탁드려요.', 'time': '14:12', 'isSettlement': false},
-    {'isMe': true,  'userId': '나', 'text': '카카오페이 링크입니다 😊', 'time': '14:13', 'isSettlement': false},
-  ];
-  final TextEditingController _inputCtrl = TextEditingController();
-  final ScrollController _scrollCtrl = ScrollController();
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final msg = settlementMessageNotifier.value;
-      if (msg != null) _injectSettlement(msg);
-      settlementMessageNotifier.addListener(_onSettlement);
-    });
-  }
-  @override
-  void dispose() { settlementMessageNotifier.removeListener(_onSettlement); _inputCtrl.dispose(); _scrollCtrl.dispose(); super.dispose(); }
-  void _onSettlement() { final msg = settlementMessageNotifier.value; if (msg != null) _injectSettlement(msg); }
-  void _injectSettlement(SettlementMessage msg) {
-    if (_messages.any((m) => m['isSettlement'] == true)) return;
-    setState(() => _messages.add({'isMe': true, 'userId': msg.hostId, 'text': '정산 요청', 'time': TimeOfDay.now().format(context), 'isSettlement': true, 'settlement': msg}));
-    _scrollToBottom();
-  }
-  void _scrollToBottom() { WidgetsBinding.instance.addPostFrameCallback((_) { if (_scrollCtrl.hasClients) _scrollCtrl.animateTo(_scrollCtrl.position.maxScrollExtent, duration: const Duration(milliseconds: 300), curve: Curves.easeOut); }); }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF9F8F6),
-      body: SafeArea(
-        child: Column(
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8), decoration: const BoxDecoration(color: Colors.white, border: Border(bottom: BorderSide(color: AppColors.border))),
-              child: Row(children: [IconButton(icon: const Icon(Icons.arrow_back_ios, color: AppColors.secondary, size: 18), onPressed: () => Navigator.pop(context)), Container(width: 36, height: 36, decoration: BoxDecoration(color: AppColors.bg, shape: BoxShape.circle, border: Border.all(color: AppColors.border)), child: const Icon(Icons.person, color: AppColors.gray, size: 22)), const SizedBox(width: 10), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('${widget.dept} → ${widget.dest}', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700), overflow: TextOverflow.ellipsis), const Text('● 탑승 중', style: TextStyle(fontSize: 11, color: AppColors.success))]))]),
-            ),
-            Expanded(child: ListView.builder(controller: _scrollCtrl, padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12), itemCount: _messages.length, itemBuilder: (_, i) => _buildBubble(_messages[i]))),
-            Container(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 14), decoration: const BoxDecoration(color: Colors.white, border: Border(top: BorderSide(color: AppColors.border))),
-              child: Row(children: [Expanded(child: Container(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4), decoration: BoxDecoration(color: AppColors.bg, borderRadius: BorderRadius.circular(22), border: Border.all(color: AppColors.border)), child: TextField(controller: _inputCtrl, minLines: 1, maxLines: 4, style: const TextStyle(fontSize: 13, color: AppColors.secondary), decoration: const InputDecoration(hintText: '메시지 입력...', hintStyle: TextStyle(fontSize: 13, color: AppColors.gray), border: InputBorder.none, isDense: true)))), const SizedBox(width: 8), ValueListenableBuilder<TextEditingValue>(valueListenable: _inputCtrl, builder: (_, val, __) => GestureDetector(onTap: () { final text = _inputCtrl.text.trim(); if (text.isEmpty) return; setState(() { _messages.add({'isMe': true, 'userId': '나', 'text': text, 'time': TimeOfDay.now().format(context), 'isSettlement': false}); }); _inputCtrl.clear(); _scrollToBottom(); }, child: AnimatedContainer(duration: const Duration(milliseconds: 150), width: 36, height: 36, decoration: BoxDecoration(color: val.text.isNotEmpty ? AppColors.primary : AppColors.bg, shape: BoxShape.circle, border: Border.all(color: val.text.isNotEmpty ? AppColors.primary : AppColors.border)), child: Icon(Icons.arrow_upward, color: val.text.isNotEmpty ? Colors.white : AppColors.gray, size: 18))))]),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBubble(Map<String, dynamic> msg) {
-    if (msg['isSettlement'] == true && msg['settlement'] != null) return _buildSettlementCard(msg['settlement'] as SettlementMessage, msg['time'] as String);
-    final isMe = msg['isMe'] as bool; final text = msg['text'] as String; final time = msg['time'] as String; final userId = msg['userId'] as String;
-    if (isMe) { return Padding(padding: const EdgeInsets.only(bottom: 10), child: Row(mainAxisAlignment: MainAxisAlignment.end, crossAxisAlignment: CrossAxisAlignment.end, children: [Text(time, style: const TextStyle(fontSize: 10, color: AppColors.gray)), const SizedBox(width: 6), _bubble(text, isMe: true)])); }
-    return Padding(padding: const EdgeInsets.only(bottom: 10), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [Container(width: 34, height: 34, decoration: BoxDecoration(color: AppColors.bg, shape: BoxShape.circle, border: Border.all(color: AppColors.border)), child: const Icon(Icons.person, color: AppColors.gray, size: 20)), const SizedBox(width: 8), Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('@$userId', style: const TextStyle(fontSize: 11, color: AppColors.gray, fontWeight: FontWeight.w600)), const SizedBox(height: 4), Row(crossAxisAlignment: CrossAxisAlignment.end, children: [_bubble(text, isMe: false), const SizedBox(width: 6), Text(time, style: const TextStyle(fontSize: 10, color: AppColors.gray))])])]));
-  }
-  Widget _bubble(String text, {required bool isMe}) => ConstrainedBox(constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.62), child: Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9), decoration: BoxDecoration(color: isMe ? AppColors.primary : Colors.white, borderRadius: BorderRadius.only(topLeft: const Radius.circular(16), topRight: const Radius.circular(16), bottomLeft: Radius.circular(isMe ? 16 : 4), bottomRight: Radius.circular(isMe ? 4 : 16)), border: isMe ? null : Border.all(color: AppColors.border), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4)]), child: Text(text, style: TextStyle(fontSize: 13, color: isMe ? Colors.white : AppColors.secondary, height: 1.4))));
-  Widget _buildSettlementCard(SettlementMessage s, String time) => Padding(padding: const EdgeInsets.only(bottom: 14), child: Row(mainAxisAlignment: MainAxisAlignment.end, crossAxisAlignment: CrossAxisAlignment.end, children: [Text(time, style: const TextStyle(fontSize: 10, color: AppColors.gray)), const SizedBox(width: 8), ConstrainedBox(constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.72), child: Container(decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.border), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 8, offset: const Offset(0, 2))]), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [Container(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12), decoration: const BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.vertical(top: Radius.circular(15))), child: Row(children: [Container(width: 28, height: 28, decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), shape: BoxShape.circle), child: const Icon(Icons.receipt_long, color: Colors.white, size: 16)), const SizedBox(width: 10), const Expanded(child: Text('정산 요청', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w800))), Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3), decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(100)), child: Text('${s.memberCount}명', style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)))])), Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('총 택시 요금', style: TextStyle(fontSize: 12, color: AppColors.gray)), Text('${_fmt(s.totalFare)}원', style: const TextStyle(fontSize: 13, color: AppColors.secondary, fontWeight: FontWeight.w600))]), const SizedBox(height: 6), const Divider(color: AppColors.border, height: 1), const SizedBox(height: 10), Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text('1인당 정산 금액', style: TextStyle(fontSize: 13, color: AppColors.secondary, fontWeight: FontWeight.w700)), Text('${_fmt(s.perPerson)}원', style: const TextStyle(fontSize: 18, color: AppColors.primary, fontWeight: FontWeight.w900))]), const SizedBox(height: 14), SizedBox(width: double.infinity, child: ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white, elevation: 0, padding: const EdgeInsets.symmetric(vertical: 12), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))), onPressed: () async { final link = s.kakaoPayLink; if (link != null) { final uri = Uri.tryParse(link); if (uri != null && await canLaunchUrl(uri)) { await launchUrl(uri, mode: LaunchMode.externalApplication); } } }, child: const Text('정산하기', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700))))]))])))]));
-  String _fmt(int n) { final s = n.toString(); final buf = StringBuffer(); for (var i = 0; i < s.length; i++) { if (i != 0 && (s.length - i) % 3 == 0) buf.write(','); buf.write(s[i]); } return buf.toString(); }
-}
