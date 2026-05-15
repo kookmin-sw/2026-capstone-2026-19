@@ -49,3 +49,12 @@ class TripSerializer(serializers.ModelSerializer):
     def get_taken_seats(self, obj):
             # 현재 트립에서 'JOINED' 상태인 사람들의 'seat_position'만 리스트로 쫙 뽑아줍니다.
             return list(obj.trip_participants.filter(status="JOINED").values_list('seat_position', flat=True))
+
+    # 👇 여기에 이 코드를 추가해 주세요! 👇
+    def get_is_joined(self, obj):
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
+            return False
+
+        # 현재 요청을 보낸 유저가 이 여행에 'JOINED' 상태로 참여 중인지 확인
+        return obj.trip_participants.filter(user=request.user, status='JOINED').exists()
