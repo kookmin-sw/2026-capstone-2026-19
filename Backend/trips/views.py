@@ -395,18 +395,26 @@ class TripLeaveView(APIView):
             channel_layer = get_channel_layer()
 
             if channel_layer:
+                leave_event = {
+                    "type": "broadcast_message",
+                    "message_type": "system_message",
+                    "message": system_text,
+                    "sender": user.username,
+                    "sender_user_id": user.id,
+                    "message_id": system_message.id,
+                    "sent_at": system_message.sent_at.isoformat(),
+                }
+
                 async_to_sync(channel_layer.group_send)(
                     f"chat_{room.id}",
-                    {
-                        "type": "broadcast_message",
-                        "message_type": "system_message",
-                        "message": system_text,
-                        "sender": user.username,
-                        "sender_user_id": user.id,
-                        "message_id": system_message.id,
-                        "sent_at": system_message.sent_at.isoformat(),
-                    },
+                    leave_event,
                 )
+
+                if room.id != trip.id:
+                    async_to_sync(channel_layer.group_send)(
+                        f"chat_{trip.id}",
+                        leave_event,
+                    )
 
                 remaining_user_ids = set()
 
