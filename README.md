@@ -8,6 +8,10 @@
 ## 💡 프로젝트 소개
 - **서비스명:** Taxi Mate
 - **핵심 가치:** 비용 절감, 이동 편의성, 신뢰 기반 동승
+
+<img src="https://github.com/rnrals220228/app-ui/blob/main/TaxiMate_%ED%8F%AC%EC%8A%A4%ED%84%B0.jpg?raw=true" alt="포스터 이미지" width="700">
+
+
 - **주요 기능**
 
   1️⃣ **실시간 핀 생성 및 검색** <br>
