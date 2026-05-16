@@ -9,6 +9,7 @@ import '../../service/auth_session.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import '../../service/trip_service.dart';
+import 'active_tab.dart';
 
 // ============================================================
 // 공통 컴포넌트: AppBar
@@ -348,6 +349,8 @@ class _MyPageTabState extends State<MyPageTab> {
             onPressed: () async {
               Navigator.pop(context);
               await AuthService.logout();
+// 🌟 3. 바로 여기에 추가! 화면 넘어가기 전에 데이터 비우기
+              globalActiveRideState.reset();
               if (mounted) Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const LoginScreen()), (route) => false);
             }, child: const Text('로그아웃')),
       ],

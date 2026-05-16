@@ -112,7 +112,7 @@ class ActiveRidePin {
 
    ActiveRidePin? get activeRide {
      final allRides = [..._myPins, ..._waitingPins]
-       ..where((p) => p.phase != RidePhase.completed).toList()
+       .where((p) => p.phase != RidePhase.completed).toList()
        ..sort((a, b) => a.departTime.compareTo(b.departTime));
      if (allRides.isEmpty) return null;
      return allRides.first;
@@ -250,7 +250,16 @@ class ActiveRidePin {
        _channel?.sink.add(jsonEncode({'type': 'trip_updated', 'message': '상태 업데이트'}));
      }
    }
-
+// 🌟 이 함수를 추가하세요!
+  void reset() {
+    _stopListener();
+    _waitingPins.clear();
+    _myPins.clear();
+    _isLoading = false;
+    _notifiedFullTripIds.clear();
+    // dispose()와 달리 객체는 살려두고 내용물만 비웁니다.
+    notifyListeners();
+  }
    @override
    void dispose() {
      _isDisposed = true;
@@ -1101,7 +1110,6 @@ class _ActiveTabState extends State<ActiveTab> with SingleTickerProviderStateMix
     _state.onRoomFull = null;
     TripService.tripsRefreshNotifier.removeListener(_state.fetchActiveRides);
     _tabCtrl.dispose();
-    _state.dispose();
     super.dispose();
   }
 

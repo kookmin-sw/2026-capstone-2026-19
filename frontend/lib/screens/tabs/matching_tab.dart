@@ -12,6 +12,7 @@ import '../../service/notification_service.dart';
 import 'package:visibility_detector/visibility_detector.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'dart:convert';
+import '../../config/app_config.dart';
 
 class MatchingTab extends StatefulWidget {
   final VoidCallback? onGoHome;
@@ -1052,8 +1053,10 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
     if (result['success']) {
    // ================= [🔥 실시간 신호 발사 코드 추가] =================
        try {
-         // 해당 룸의 웹소켓에 임시 연결
-         final wsUrl = 'ws://10.0.2.2:8000/ws/trip/$tripId/';
+         // 🌟 변경: 여기도 동일하게 AppConfig와 토큰 적용
+         final encodedToken = Uri.encodeComponent(AuthSession.token ?? '');
+         final wsUrl = '${AppConfig.wsBaseUrl}/ws/trip/$tripId/?token=$encodedToken';
+
          final tempChannel = WebSocketChannel.connect(Uri.parse(wsUrl));
 
          // 방장과 기존 인원들에게 새로고침하라고 신호 발송
@@ -1063,6 +1066,7 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
          }));
 
          // 신호 전송 후 소켓 닫기
+         await Future.delayed(const Duration(milliseconds: 300));
          await tempChannel.sink.close();
          print("✅ 참여 웹소켓 신호 발송 완료");
        } catch (e) {
