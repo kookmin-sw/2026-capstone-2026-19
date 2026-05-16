@@ -28,11 +28,14 @@ class TrustScoreLogView(APIView):
         logs = TrustScoreLog.objects.filter(user=request.user).order_by('-created_at')
         log_data = []
         for log in logs:
-            sign = "+" if log.direction == "GAIN" else "-"
+            if log.applied_delta > 0:
+                applied_delta_str = f"+{log.applied_delta}"
+            else:
+                applied_delta_str = f"{log.applied_delta}"
             log_data.append({
                 "event_type": log.event_type,
                 "direction": log.direction,
-                "applied_delta": f"{sign}{log.applied_delta}",
+                "applied_delta": applied_delta_str,
                 "reason_detail": log.reason_detail,
                 "score_after": log.score_after,
                 "created_at": log.created_at.isoformat(),
