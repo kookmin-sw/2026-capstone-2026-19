@@ -16,6 +16,7 @@ from trips.models import TripParticipant
 from django.utils import timezone
 from datetime import timedelta
 from settlements.models import Settlement
+from django.db.models import Q
 
 # 옥토모 역발상 인증 설정 (.env 파일에서 로드)
 OCTOMO_API_KEY = os.getenv('OCTOMO_API_KEY', '')
@@ -254,23 +255,56 @@ class RecentCompanionsView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        my_trip_ids = TripParticipant.objects.filter(user=request.user).values_list('trip_id', flat=True)
-        companions = TripParticipant.objects.filter(trip_id__in=my_trip_ids).exclude(user=request.user).select_related(
-            'user', 'trip').order_by('-trip__depart_time')
+        now = timezone.now()
+        one_hour_ago = now - timedelta(hours=1)
 
-        companion_data = []
-        seen_user_ids = set()
-        for c in companions:
-            if c.user.id not in seen_user_ids:
-                seen_user_ids.add(c.user.id)
+        my_participants = TripParticipant.objects.filter(
+            user=request.user,
+        ).select_related('trip').filter(
+            Q(status='JOINED') |
+            Q(trip__status='COMPLETED') |
+            Q(status='LEFT', left_at__gte=one_hour_ago)
+        ).order_by('-trip__depart_time')
+
+        trip_data = []
+
+        for my_participant in my_participants:
+            trip = my_participant.trip
+
+            companions = TripParticipant.objects.filter(
+                trip=trip,
+            ).exclude(
+                user=request.user,
+            ).select_related('user').order_by('joined_at')
+
+            companion_data = []
+            for companion in companions:
                 companion_data.append({
-                    "id": str(c.user.id),
-                    "nickname": c.user.nickname,
-                    "ride_date": c.trip.depart_time.strftime("%Y.%m.%d"),
-                    "route": f"{c.trip.depart_name} -> {c.trip.arrive_name}",
-                    "profile_image": str(c.user.profile_img_url) if c.user.profile_img_url else ""
+                    "id": str(companion.user.id),
+                    "nickname": companion.user.nickname or companion.user.username,
+                    "username": companion.user.username,
+                    "status": companion.status,
+                    "role": companion.role,
+                    "profile_image": request.build_absolute_uri(companion.user.profile_img_url.url)
+                    if companion.user.profile_img_url else "",
                 })
-        return Response(companion_data, status=status.HTTP_200_OK)
+
+            if not companion_data:
+                continue
+
+            trip_data.append({
+                "trip_id": str(trip.id),
+                "ride_date": trip.depart_time.strftime("%Y.%m.%d %H:%M") if trip.depart_time else "날짜 미정",
+                "route": f"{trip.depart_name} -> {trip.arrive_name}",
+                "depart_name": trip.depart_name,
+                "arrive_name": trip.arrive_name,
+                "trip_status": trip.status,
+                "my_participant_status": my_participant.status,
+                "left_at": my_participant.left_at.isoformat() if my_participant.left_at else None,
+                "companions": companion_data,
+            })
+
+        return Response(trip_data, status=status.HTTP_200_OK)
 
 
 class WithdrawView(APIView):
