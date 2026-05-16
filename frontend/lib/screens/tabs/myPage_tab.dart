@@ -9,6 +9,7 @@ import '../../service/auth_session.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import '../../service/trip_service.dart';
+import 'package:flutter/services.dart';
 
 // ============================================================
 // 공통 컴포넌트: AppBar
@@ -467,9 +468,6 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _pushAlarm = true;
-  bool _chatAlarm = true;
-  bool _nightAlarm = false;
-  bool _chatEnterAlarm = true;
 
   @override
   Widget build(BuildContext context) {
@@ -479,17 +477,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         children: [
           _sectionTitle('🔔 알림 설정'),
-          _switchTile('푸시 알림 동의', '앱 전체 알림 수신', _pushAlarm, (v) => setState(() => _pushAlarm = v)),
-          _switchTile('채팅 알림', '채팅방 메시지 알림', _chatAlarm, (v) => setState(() => _chatAlarm = v)),
-          _switchTile('야간 알림 (22시~8시)', '야간 시간대 알림 차단', _nightAlarm, (v) => setState(() => _nightAlarm = v)),
-          _sectionTitle('💬 채팅 설정'),
-          _switchTile('채팅방 입장 알림', '누군가 입장 시 알림', _chatEnterAlarm, (v) => setState(() => _chatEnterAlarm = v)),
-          _navTile('채팅 글꼴 크기', '기본', () {}),
-          _sectionTitle('📋 약관 및 정책'),
+          _switchTile(
+            '푸쉬 알림 동의',
+            '채팅, 참여, 정산 등 서비스 알림 수신',
+            _pushAlarm,
+            (v) => setState(() => _pushAlarm = v),
+          ),
+          _sectionTitle('📄 약관 및 정책'),
           _navTile('개인정보 처리방침', null, () {}),
+          _navTile('위치기반 서비스 약관', null, () {}),
+          _navTile(
+            '오픈 소스 라이선스',
+            null,
+            () => showLicensePage(
+              context: context,
+              applicationName: 'TaxiMate',
+              applicationVersion: '1.0.0',
+            ),
+          ),
           _navTile('서비스 이용약관', null, () {}),
-          _sectionTitle('⚠️ 계정'),
-          _navTile('탈퇴하기', null, () => _showWithdrawDialog(context), color: AppColors.red, icon: Icons.person_remove_outlined),
+          _navTile('버전 정보', '1.0.0', () {}),
+          _sectionTitle('👤 계정'),
+          _navTile(
+            '탈퇴하기',
+            null,
+            () => _showWithdrawDialog(context),
+            color: AppColors.red,
+            icon: Icons.person_remove_outlined,
+          ),
           const SizedBox(height: 32),
         ],
       ),
@@ -540,6 +555,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
 // ============================================================
 class SupportScreen extends StatelessWidget {
   const SupportScreen({super.key});
+
+  static const String _supportEmail = 'crescit2026@gmail.com';
+
+  Future<void> _copySupportEmail(BuildContext context) async {
+    await Clipboard.setData(const ClipboardData(text: _supportEmail));
+
+    if (!context.mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('이메일 주소가 복사되었습니다.'),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -547,11 +577,17 @@ class SupportScreen extends StatelessWidget {
       appBar: _appBar('고객지원'),
       body: Padding(
         padding: const EdgeInsets.all(20),
-        child: Column(children: [
-          _supportCard(Icons.phone, '전화 문의', '010-5410-1536', AppColors.primary, () async => await launchUrl(Uri.parse('tel:15880000'))),
-          const SizedBox(height: 12),
-          _supportCard(Icons.email_outlined, '이메일 문의', '2020gomtang@gmail.com', const Color(0xFF4A6FFF), () async => await launchUrl(Uri.parse('mailto:support@taximate.app'))),
-        ]),
+        child: Column(
+          children: [
+            _supportCard(
+              Icons.email_outlined,
+              '이메일 문의',
+              _supportEmail,
+              const Color(0xFF4A6FFF),
+              () => _copySupportEmail(context),
+            ),
+          ],
+        ),
       ),
     );
   }
