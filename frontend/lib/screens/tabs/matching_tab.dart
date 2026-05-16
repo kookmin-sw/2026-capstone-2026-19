@@ -251,6 +251,13 @@ class _MatchingTabState extends State<MatchingTab> with SingleTickerProviderStat
                 child: ElevatedButton(
                   style: ElevatedButton.styleFrom(backgroundColor: isMine || isFull || isAlreadyJoined ? AppColors.gray : AppColors.primary, padding: const EdgeInsets.symmetric(vertical: 13), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
                   onPressed: isMine || isFull || isAlreadyJoined ? null : () async {
+                      if (globalActiveRideState.activePinCount >= 2) {
+                        _showSnackBar(
+                          '동시에 최대 2개의 동승에만 참여할 수 있습니다.',
+                          AppColors.red,
+                        );
+                        return;
+                      }
                       await Navigator.push(
                         context,
                         MaterialPageRoute(
@@ -548,6 +555,10 @@ class _MatchingTabState extends State<MatchingTab> with SingleTickerProviderStat
   }
 
   Future<void> _handleCreate() async {
+    if (globalActiveRideState.activePinCount >= 2) {
+      _showSnackBar('동시에 최대 2개의 동승에만 참여할 수 있습니다.', AppColors.red);
+      return;
+    }
     if (_deptCtrl.text.isEmpty || _destCtrl.text.isEmpty) {
       _showSnackBar('출발지와 목적지를 입력해주세요.', AppColors.red);
       return;
@@ -1050,6 +1061,16 @@ class _RideJoinScreenState extends State<RideJoinScreen> {
   ]);
 
   Future<void> _handleJoin() async {
+    if (globalActiveRideState.activePinCount >= 2) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('동시에 최대 2개의 동승에만 참여할 수 있습니다.'),
+          backgroundColor: AppColors.red,
+        ),
+      );
+      return;
+    }
+
     setState(() => _isLoading = true);
 
     final rawTripId = widget.pin['id'];
