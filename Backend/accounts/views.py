@@ -15,6 +15,7 @@ from .serializers import SignUpSerializer
 from trips.models import TripParticipant
 from django.utils import timezone
 from datetime import timedelta
+from settlements.models import Settlement
 
 # 옥토모 역발상 인증 설정 (.env 파일에서 로드)
 OCTOMO_API_KEY = os.getenv('OCTOMO_API_KEY', '')
@@ -196,16 +197,44 @@ class TripHistoryView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        participants = TripParticipant.objects.filter(user=request.user).select_related('trip').order_by(
-            '-trip__depart_time')
+        participants = TripParticipant.objects.filter(
+            user=request.user,
+            status='JOINED',
+            trip__status='COMPLETED',
+        ).select_related('trip').order_by('-trip__depart_time')
+
         history_data = []
 
         for p in participants:
             trip = p.trip
-            members_count = TripParticipant.objects.filter(trip=trip, status='JOINED').count()
-            total_fare = trip.estimated_fare or 0
-            # 💡 들여쓰기 수정 완료!
-            my_fare = int(total_fare / members_count) if members_count > 0 else 0
+
+            members_count = TripParticipant.objects.filter(
+                trip=trip,
+                status='JOINED',
+            ).count()
+
+            my_settlement = Settlement.objects.filter(
+                trip=trip,
+                payer_user=request.user,
+            ).exclude(
+                status='CANCELED',
+            ).select_related('receipt').order_by('-requested_at').first()
+
+            if my_settlement:
+                my_fare = my_settlement.share_amount
+                total_fare = my_settlement.receipt.total_amount or 0
+            else:
+                representative_settlement = Settlement.objects.filter(
+                    trip=trip,
+                ).exclude(
+                    status='CANCELED',
+                ).select_related('receipt').order_by('-requested_at').first()
+
+                if not representative_settlement:
+                    continue
+
+                my_fare = representative_settlement.share_amount
+                total_fare = representative_settlement.receipt.total_amount or 0
 
             history_data.append({
                 "date": trip.depart_time.strftime("%Y.%m.%d") if trip.depart_time else "날짜 미정",
@@ -217,7 +246,7 @@ class TripHistoryView(APIView):
                 "total": total_fare,
                 "my": my_fare,
             })
-        # 💡 return 위치를 for 루프 밖으로 수정 완료!
+
         return Response(history_data, status=status.HTTP_200_OK)
 
 
@@ -383,6 +412,17 @@ class UserProfileView(APIView):
 
     def get(self, request):
         user = request.user
+        completed_trip_ids = TripParticipant.objects.filter(
+            user=user,
+            status='JOINED',
+            trip__status='COMPLETED',
+        ).values_list('trip_id', flat=True)
+
+        history_count = Settlement.objects.filter(
+            trip_id__in=completed_trip_ids,
+        ).exclude(
+            status='CANCELED',
+        ).values('trip_id').distinct().count()
         return Response({
             'success': True,
             'data': {
@@ -391,11 +431,13 @@ class UserProfileView(APIView):
                 'nickname': user.nickname,
                 'trust_score': float(user.trust_score),
                 'successful_streak_count': user.successful_streak_count,
+                'history_count': history_count,
                 'profile_img_url': request.build_absolute_uri(user.profile_img_url.url) if user.profile_img_url else None,
                 # 📍 추가: DB에 추가한 인증 필드값을 내려줍니다.
                 'is_phone_verified': getattr(user, 'is_phone_verified', False),
             }
         }, status=status.HTTP_200_OK)
+        
 class UpdateFCMTokenView(APIView):
     """
     사용자의 FCM 기기 토큰을 업데이트하는 뷰

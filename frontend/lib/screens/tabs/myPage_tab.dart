@@ -93,7 +93,7 @@ class _MyPageTabState extends State<MyPageTab> {
 
   List<_MenuItem> _getDynamicMenus(Map<String, dynamic> userData) {
     final String score = userData['trust_score']?.toString() ?? '36.5';
-    final int count = userData['successful_streak_count'] ?? 0;
+    final int count = int.tryParse('${userData['history_count'] ?? 0}') ?? 0;
 
     return [
       _MenuItem(icon: Icons.verified_user_outlined, label: '인증 관리', sub: '본인 및 신원 인증', screen: const _AuthScreen()),
@@ -379,26 +379,75 @@ class _HistoryScreenState extends State<HistoryScreen> {
   Future<void> _fetchHistory() async {
     try {
       final history = await AuthService.getTripHistory();
-      setState(() { _histories = history; _isLoading = false; });
+
+      if (!mounted) return;
+
+      setState(() {
+        _histories = history;
+        _error = null;
+        _isLoading = false;
+      });
     } catch (e) {
-      setState(() { _error = '이용 내역을 불러오는데 실패했습니다: $e'; _isLoading = false; });
+      if (!mounted) return;
+
+      setState(() {
+        _error = '이용 내역을 불러오는 데 실패했습니다: $e';
+        _isLoading = false;
+      });
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (!AuthSession.isLoggedIn) return Scaffold(appBar: _appBar('이용 내역'), body: const Center(child: Text('로그인이 필요합니다.')));
+    if (!AuthSession.isLoggedIn) {
+      return Scaffold(
+        appBar: _appBar('이용 내역'),
+        body: const Center(child: Text('로그인이 필요합니다.')),
+      );
+    }
+
     return Scaffold(
       backgroundColor: AppColors.bg,
       appBar: _appBar('이용 내역'),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? Center(child: Text(_error!, style: const TextStyle(color: AppColors.red)))
-          : ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: _histories.length,
-              itemBuilder: (_, i) => _buildHistoryCard(_histories[i]),
+          : RefreshIndicator(
+              onRefresh: _fetchHistory,
+              child: _error != null
+                  ? ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.all(16),
+                      children: [
+                        const SizedBox(height: 180),
+                        Center(
+                          child: Text(
+                            _error!,
+                            style: const TextStyle(color: AppColors.red),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ],
+                    )
+                  : _histories.isEmpty
+                      ? ListView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.all(16),
+                          children: const [
+                            SizedBox(height: 180),
+                            Center(
+                              child: Text(
+                                '완료된 이용 내역이 없습니다.',
+                                style: TextStyle(color: AppColors.gray),
+                              ),
+                            ),
+                          ],
+                        )
+                      : ListView.builder(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.all(16),
+                          itemCount: _histories.length,
+                          itemBuilder: (_, i) => _buildHistoryCard(_histories[i]),
+                        ),
             ),
     );
   }
