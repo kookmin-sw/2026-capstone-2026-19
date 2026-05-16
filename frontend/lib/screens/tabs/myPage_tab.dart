@@ -1527,12 +1527,12 @@ class _AuthScreenState extends State<_AuthScreen> {
           ),
           const SizedBox(height: 20),
           Text(
-            _isPhoneVerified ? '인증이 완료되었습니다' : '본인 인증이 필요합니다',
+            _isPhoneVerified ? '인증이 완료되었습니다' : '전화번호가 바뀌었나요?',
             style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: AppColors.secondary),
           ),
           const SizedBox(height: 8),
           Text(
-            _isPhoneVerified ? 'Crescit의 모든 기능을 안전하게 이용할 수 있습니다.' : '안전한 거래를 위해 휴대폰 인증을 진행해 주세요.',
+            _isPhoneVerified ? 'Crescit의 모든 기능을 안전하게 이용할 수 있습니다.' : '안전한 여정을 위해 새로운 휴대폰 번호를 인증해 주세요.',
             style: const TextStyle(fontSize: 13, color: AppColors.gray),
           ),
         ],
