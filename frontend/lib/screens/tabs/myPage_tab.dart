@@ -591,11 +591,54 @@ class _SettingsScreenState extends State<SettingsScreen> {
   );
 
   void _showWithdrawDialog(BuildContext context) {
-    showDialog(context: context, builder: (_) => AlertDialog(
-      title: const Text('탈퇴하기', style: TextStyle(color: AppColors.red)),
-      content: const Text('정말 탈퇴하시겠습니까?'),
-      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('취소')), ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: AppColors.red), onPressed: () {}, child: const Text('탈퇴'))],
-    ));
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text(
+          '탈퇴하기',
+          style: TextStyle(color: AppColors.red),
+        ),
+        content: const Text(
+          '정말 탈퇴하시겠습니까?\n탈퇴 후 계정 정보는 정책에 따라 1년간 보관됩니다.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('취소'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.red,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () async {
+              Navigator.pop(dialogContext);
+
+              final result = await AuthService.withdraw(reason: '자진 탈퇴');
+
+              if (!context.mounted) return;
+
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    result['message'] ?? '탈퇴 처리가 완료되었습니다.',
+                  ),
+                ),
+              );
+
+              if (result['success'] == true) {
+                Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(builder: (_) => const LoginScreen()),
+                  (route) => false,
+                );
+              }
+            },
+            child: const Text('탈퇴'),
+          ),
+        ],
+      ),
+    );
   }
 }
 
