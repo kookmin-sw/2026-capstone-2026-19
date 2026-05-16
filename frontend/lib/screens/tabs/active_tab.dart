@@ -9,11 +9,14 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../utils/colors.dart';
 import '../../service/trip_service.dart';
 import '../../service/auth_session.dart';
-import 'message_tab.dart';
+import 'message_tab.dart' hide SettlementMessage;
 import '../../service/notification_service.dart';
 import 'dart:async'; // StreamSubscription 사용을 위해 추가
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'dart:convert';
+import 'message_tab.dart' as chat;
+import '../../service/settlement_service.dart'; // 🌟 추가
+import '../../config/app_config.dart';
 
 // ============================================================
 // 열거형 & 모델
@@ -96,7 +99,9 @@ class ActiveRidePin {
    List<ActiveRidePin> _waitingPins = [];
    List<ActiveRidePin> _myPins = [];
    bool _isLoading = false;
-
+// 🔽 [추가] 중복 알림 방지 및 만석 감지 UI 트리거용 변수
+   final Set<int> _notifiedFullTripIds = {};
+   void Function(int tripId)? onRoomFull;
    // 🆕 실시간 통신을 위한 채널 변수 (웹/앱 공용)
    WebSocketChannel? _channel;
    StreamSubscription? _wsSubscription; // 🆕 메모리 누수 방지를 위한 구독 객체
@@ -168,7 +173,19 @@ class ActiveRidePin {
 
          // 실시간 감시 시작 (상태 무관하게 웹소켓은 연결해야 방장의 '완료' 신호를 참여자가 받을 수 있음)
          initRealTimeListener(currentRide.id);
+// 조건: 내가 방장이고, 인원이 꽉 찼고, 아직 출발 전(RIDING) 상태일 때
+         if (currentRide.isMine &&
+             currentRide.cur == currentRide.max &&
+             currentRide.phase == RidePhase.riding) {
 
+           // 이미 팝업을 띄운 방이 아니라면 UI에 다이얼로그 노출 요청
+           if (!_notifiedFullTripIds.contains(currentRide.id)) {
+             _notifiedFullTripIds.add(currentRide.id);
+
+             // UI가 빌드 중일 때 예외가 발생하지 않도록 마이크로태스크로 안전하게 호출
+             Future.microtask(() => onRoomFull?.call(currentRide.id));
+           }
+         }
        } else {
          NotificationService.cancelOngoingRide();
          _stopListener();
@@ -469,7 +486,7 @@ class _ActiveRideSheetState extends State<ActiveRideSheet> {
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
-                onPressed: isPastDeparture ? () => _confirmBoarding(context, r.id) : null,
+                onPressed: isPastDeparture ? () => _confirmBoarding(context, r.id, _s) : null,
                 icon: const Icon(Icons.check_circle_outline, size: 16),
                 label: Text(
                   isPastDeparture ? '탑승 확인 완료' : '출발 시각 이후 활성화',
@@ -527,40 +544,56 @@ class _ActiveRideSheetState extends State<ActiveRideSheet> {
     child: Center(child: Text(text, style: const TextStyle(fontSize: 12, color: AppColors.gray))),
   );
 
-  void _confirmBoarding(BuildContext context, int tripId) {
+// 📍 _ActiveRideSheetState 내부의 _goToReceiptShare 함수를 이 코드로 교체합니다.
+  void _goToReceiptShare(BuildContext context, ActiveRidePin r) async {
+    // 1️⃣ 서버에서 방 정보를 조회하는 동안 화면이 멈춘 것처럼 보이지 않게 로딩 창을 띄웁니다.
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('탑승 확인', style: TextStyle(fontWeight: FontWeight.w700)),
-        content: const Text('모든 인원이 탑승했나요?\n확인하면 정산 단계로 넘어갑니다.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('아직이요')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white, elevation: 0),
-            onPressed: () {
-              Navigator.pop(context);
-              _s.completeBoarding(tripId);
-            },
-            child: const Text('탑승 완료'),
-          ),
-        ],
-      ),
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator(color: AppColors.primary)),
     );
-  }
 
-  void _goToReceiptShare(BuildContext context, ActiveRidePin r) {
+    int? realChatRoomId;
+    try {
+      // 2️⃣ 서버 API를 호출하여 내가 속한 전체 채팅방 리스트를 받아옵니다.
+      final data = await TripService.getChatRooms(token: AuthSession.token ?? '');
+
+      // 3️⃣ 현재 이용 중인 방 번호(r.id)와 일치하는 진짜 채팅방 ID(map['id'])를 맵핑합니다.
+      for (var item in data) {
+        final map = Map<String, dynamic>.from(item as Map);
+        if (map['trip_id'] == r.id) {
+          realChatRoomId = map['id'] as int?;
+          break;
+        }
+      }
+    } catch (e) {
+      debugPrint('정산 화면 이동 중 채팅방 조회 실패: $e');
+    }
+
+    // 통신이 끝났으므로 띄워두었던 로딩 팝업을 먼저 안전하게 닫아줍니다.
+    if (!mounted) return;
+    Navigator.pop(context);
+
+    // 예외 처리: 만약 알 수 없는 이유로 매칭되는 채팅방 ID를 확보하지 못했다면 스낵바 알림 후 중단합니다.
+    if (realChatRoomId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('연결된 채팅방을 찾을 수 없습니다.'), backgroundColor: AppColors.red),
+      );
+      return;
+    }
+
+    // 4️⃣ 🎉 드디어 진짜 대화방 ID(realChatRoomId)를 확보했으므로 파라미터에 장착하여 정산 화면으로 이동합니다!
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => ReceiptShareScreen(
           activeRide: r,
+          chatRoomId: realChatRoomId!, // 🌟 여기에 빠졌던 필수 변수가 전달되면서 에러가 해결됩니다!
           onSent: () => widget.onGoToChat?.call(),
         ),
       ),
     );
   }
-
   void _goToChatDialog(BuildContext context) {
     showDialog(
       context: context,
@@ -629,10 +662,15 @@ class _ActiveRideSheetState extends State<ActiveRideSheet> {
 // ============================================================
 class ReceiptShareScreen extends StatefulWidget {
   final ActiveRidePin activeRide;
+  final int chatRoomId; // 🌟 1. 이 줄 추가
   final VoidCallback onSent;
 
-  const ReceiptShareScreen({super.key, required this.activeRide, required this.onSent});
-
+  const ReceiptShareScreen({
+    super.key,
+    required this.activeRide,
+    required this.chatRoomId, // 🌟 2. 이 줄 추가
+    required this.onSent,
+  });
   @override
   State<ReceiptShareScreen> createState() => _ReceiptShareScreenState();
 }
@@ -842,47 +880,106 @@ class _ReceiptShareScreenState extends State<ReceiptShareScreen> {
     }
 
     setState(() => _isLoading = true);
-
+final total = int.tryParse(_totalCtrl.text.replaceAll(',', '')) ?? _totalFare;
     final perPerson = int.tryParse(_perPersonCtrl.text.replaceAll(',', '')) ?? _perPerson;
-    final total = int.tryParse(_totalCtrl.text.replaceAll(',', '')) ?? _totalFare;
+    final token = AuthSession.token ?? '';
 
-    // API 호출
-    final result = await TripService.requestSettlement(
-      token: AuthSession.token ?? '',
-      tripId: widget.activeRide.id,
-      totalFare: total,
-      imageFile: _receiptImage,
-    );
+    try {
+      // 1️⃣ 단계: 선택된 영수증 이미지 백엔드 파일 서버에 업로드
+      final uploadResult = await SettlementService.uploadReceiptImage(
+        token: token,
+        tripId: widget.activeRide.id,
+        imageFile: _receiptImage!,
+        resetExisting: true, // 기존에 혹시 생성되어 있던 불완전한 정산은 무효화(Overwrite)
+      );
 
-    if (!mounted) return;
+      final receiptId = uploadResult['id'];
+      if (receiptId == null || receiptId == 0) {
+        throw Exception('영수증 업로드 번호(receipt_id)를 수신하지 못했습니다.');
+      }
 
-    if (result['success']) {
-      // 정산 상태로 서버 업데이트
+      // 2️⃣ 단계: 입력 폼에서 수정한 총 택시 요금 최종 확정
+      await SettlementService.confirmReceiptAmount(
+        token: token,
+        receiptId: receiptId,
+        totalAmount: total,
+      );
+
+      // 3️⃣ 단계: 핀 생성 시 유저가 등록해 두었던 카카오페이 링크 연동 및 등록
+      await SettlementService.upsertPaymentChannel(
+        token: token,
+        tripId: widget.activeRide.id,
+        kakaopayLink: widget.activeRide.kakaoPayLink ?? '',
+      );
+
+      // 4️⃣ 단계: 최종 정산서 리스트 데이터베이스 모델 생성 (팀원 인원수대로 쪼개진 영수증 맵 반환)
+      final settlements = await SettlementService.createSettlements(
+        token: token,
+        tripId: widget.activeRide.id,
+      );
+
+      // 5️⃣ 단계: 🔗 대망의 채팅방 실시간 웹소켓 통로로 정산 카드 뿜어내기
+      if (settlements.isNotEmpty) {
+        final firstSettlementMap = Map<String, dynamic>.from(settlements.first as Map);
+
+        // [검증] message_tab 규격 파일과 정상적으로 인코딩/디코딩 호환되는지 한 번 더 체크
+        final verifiedMsg = chat.SettlementMessage.fromJson(firstSettlementMap);
+        debugPrint('✅ message_tab 데이터 규격 일치 확인 완료: ${verifiedMsg.shareAmountText}');
+
+        // 해당 채팅방 고유 웹소켓 주소 개설 및 임시 접속
+        final encodedToken = Uri.encodeComponent(token);
+        final wsUrl = Uri.parse('${AppConfig.wsBaseUrl}/ws/chat/${widget.chatRoomId}/?token=$encodedToken');
+        final tempChatChannel = WebSocketChannel.connect(wsUrl);
+
+        // ChatRoomScreen 리스너 수신 규격('settlement_request')에 맞게 패이로드 전송
+        tempChatChannel.sink.add(jsonEncode({
+          'type': 'settlement_request',
+          'message': '정산 요청이 도착했습니다.',
+          'settlement': firstSettlementMap, // message_tab이 렌더링할 로우 데이터 원본
+          'sender': widget.activeRide.hostId,
+          'sent_at': DateTime.now().toIso8601String(),
+        }));
+
+        // 신호탄 발송 후 소켓 즉시 안전하게 파괴 (리소스 누수 완벽 차단)
+        await tempChatChannel.sink.close();
+      }
+
+      // 6️⃣ 단계: 카풀 이용 상태 완료('COMPLETED') 처리로 서버 최종 마감
       await TripService.updateTripStatus(
-        token: AuthSession.token ?? '',
+        token: token,
         tripId: widget.activeRide.id,
         status: 'COMPLETED',
       );
 
+      // 7️⃣ 단계: 로컬 알림 상태 공유 노티파이어 세팅 (기존 코드 흐름 유지)
       settlementMessageNotifier.value = SettlementMessage(
         totalFare: total, perPerson: perPerson, memberCount: _memberCount,
         kakaoPayLink: widget.activeRide.kakaoPayLink, hostId: widget.activeRide.hostId, imageFile: _receiptImage,
       );
 
+      if (!mounted) return;
       setState(() { _sent = true; _isLoading = false; });
-      globalActiveRideState.fetchActiveRides();
-      widget.onSent();
 
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('정산 요청을 보냈습니다.'), backgroundColor: AppColors.primary));
+      globalActiveRideState.fetchActiveRides(); // '이용중 바' 컴포넌트 실시간 동기화 새로고침
+      widget.onSent(); // 채팅방 화면으로 유저를 자동 복귀/이동시키는 부모 콜백 실행
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('채팅방에 실시간 정산 카드를 발송했습니다 🎉'), backgroundColor: AppColors.primary)
+      );
+
       Future.delayed(const Duration(milliseconds: 600), () {
         if (mounted) Navigator.pop(context);
       });
-    } else {
+
+    } catch (e) {
       setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(result['message'] ?? '요청 실패'), backgroundColor: AppColors.red));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('실시간 정산 연동 중 실패: $e'), backgroundColor: AppColors.red),
+      );
+    }
     }
   }
-}
 
 // ============================================================
 // 이용 중 버튼
@@ -991,10 +1088,17 @@ class _ActiveTabState extends State<ActiveTab> with SingleTickerProviderStateMix
     _tabCtrl.addListener(() => setState(() => _selectedCardId = null));
     WidgetsBinding.instance.addPostFrameCallback((_) => _state.fetchActiveRides());
     TripService.tripsRefreshNotifier.addListener(_state.fetchActiveRides);
+// 🤝 만석 신호가 오면 바깥의 _confirmBoarding을 호출하면서 현재 state(_state)를 전달!
+  _state.onRoomFull = (tripId) {
+    if (mounted) {
+      _confirmBoarding(context, tripId, _state);
+      }
+      };
   }
 
   @override
   void dispose() {
+    _state.onRoomFull = null;
     TripService.tripsRefreshNotifier.removeListener(_state.fetchActiveRides);
     _tabCtrl.dispose();
     _state.dispose();
@@ -1206,3 +1310,25 @@ class _ActiveTabState extends State<ActiveTab> with SingleTickerProviderStateMix
   Widget _emptyState({required IconData icon, required String title, required String sub}) => Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Container(width: 72, height: 72, decoration: const BoxDecoration(color: AppColors.primaryLight, shape: BoxShape.circle), child: Icon(icon, color: AppColors.primary, size: 36)), const SizedBox(height: 16), Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.secondary)), const SizedBox(height: 6), Text(sub, style: const TextStyle(fontSize: 13, color: AppColors.gray))]));
 }
 
+void _confirmBoarding(BuildContext context, int tripId, ActiveRideState state) { // 👈 맨 뒤에 state 추가!
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      title: const Text('탑승 확인', style: TextStyle(fontWeight: FontWeight.w700)),
+      content: const Text('모든 인원이 탑승했나요?\n확인하면 정산 단계로 넘어갑니다.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('아직이요')),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white, elevation: 0),
+          onPressed: () {
+            Navigator.pop(context);
+            state.completeBoarding(tripId); // 👈 _s 대신 넘겨받은 state 원본을 호출!
+          },
+          child: const Text('탑승 완료'),
+        ),
+      ],
+    ),
+  );
+}
