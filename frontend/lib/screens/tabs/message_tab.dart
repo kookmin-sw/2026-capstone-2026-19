@@ -868,17 +868,8 @@ class _ChatRoomScreenState extends State<ChatRoomScreen> {
           : roomSettlements;
 
       setState(() {
-        final settlementMessageIds = displaySettlements
-            .map((item) {
-              final map = Map<String, dynamic>.from(item as Map);
-              return 'settlement_${map['id']}';
-            })
-            .toSet();
-
         _messages.removeWhere(
-          (message) =>
-              message.isSettlement &&
-              settlementMessageIds.contains(message.id),
+          (message) => message.isSettlement,
         );
 
         for (final item in displaySettlements) {
@@ -1550,15 +1541,6 @@ void _scrollToBottomAfterLayout({bool jump = false, bool force = false}) {
                             _pinnedNotice = notice;
                           });
 
-                          _channel?.sink.add(
-                            jsonEncode({
-                              'type': 'settlement_completed',
-                              'message': '정산이 완료되었습니다.',
-                              'pinned_notice': notice,
-                              'expires_at': result['expires_at']?.toString(),
-                            }),
-                          );
-
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
                               content: Text('정산이 완료되었습니다.'),
@@ -1954,10 +1936,6 @@ void _scrollToBottomAfterLayout({bool jump = false, bool force = false}) {
         throw Exception(message);
       }
 
-      _channel?.sink.add(jsonEncode({
-        'type': 'system_message', // 백엔드 설정에 맞게 변경 가능 (예: 'trip_updated')
-        'message': '${widget.myNickname}님이 채팅방을 나갔습니다.',
-      }));
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -2588,16 +2566,7 @@ void _scrollToBottomAfterLayout({bool jump = false, bool force = false}) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('정산 요청이 생성되었습니다.')),
       );
-
-      if (settlements.isNotEmpty) {
-        final first = Map<String, dynamic>.from(settlements.first as Map);
-
-        _channel?.sink.add(jsonEncode({
-          'type': 'settlement_request',
-          'message': '정산 요청이 도착했습니다.',
-          'settlement': first,
-        }));
-      }
+      
     } catch (e) {
       if (!mounted) return;
 

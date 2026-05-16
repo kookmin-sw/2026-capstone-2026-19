@@ -106,12 +106,14 @@ class ActiveRidePin {
    bool get isLoading => _isLoading;
 
    ActiveRidePin? get activeRide {
-     final allRides = [..._myPins, ..._waitingPins]
-       ..where((p) => p.phase != RidePhase.completed).toList()
-       ..sort((a, b) => a.departTime.compareTo(b.departTime));
-     if (allRides.isEmpty) return null;
-     return allRides.first;
-   }
+    final allRides = [..._myPins, ..._waitingPins]
+        .where((p) => p.phase != RidePhase.completed)
+        .toList()
+      ..sort((a, b) => a.departTime.compareTo(b.departTime));
+
+    if (allRides.isEmpty) return null;
+    return allRides.first;
+  }
 
    // 🆕 1. 실시간 리스너 시작
    void initRealTimeListener(int tripId) {
@@ -142,19 +144,23 @@ class ActiveRidePin {
    }
 
    // 📍 데이터 로드 및 리스너 자동 연결
-   Future<void> fetchActiveRides() async {
-     _isLoading = true;
-     notifyListeners();
-     try {
-       final data = await TripService.getMyTrips(token: AuthSession.token ?? '');
-       if (_isDisposed) return;
-       final allPins = data.map((j) => ActiveRidePin.fromJson(j)).toList();
+  Future<void> fetchActiveRides() async {
+    _isLoading = true;
+    notifyListeners();
+    try {
+      final data = await TripService.getMyTrips(token: AuthSession.token ?? '');
+      if (_isDisposed) return;
+      final allPins = data.map((j) => ActiveRidePin.fromJson(j)).toList();
 
-       _myPins = allPins.where((p) => p.isMine).toList();
-       _waitingPins = allPins.where((p) => !p.isMine).toList();
+      final activePins = allPins
+          .where((p) => p.phase != RidePhase.completed)
+          .toList();
 
-       final currentRide = activeRide;
-       if (currentRide != null) {
+      _myPins = activePins.where((p) => p.isMine).toList();
+      _waitingPins = activePins.where((p) => !p.isMine).toList();
+
+      final currentRide = activeRide;
+      if (currentRide != null) {
 // ✅ 수정된 부분: 핀 상태가 '모집 완료(FULL)' 또는 '정산 중(CLOSED)'일 때만 알림 표시
          if (currentRide.pinPhase == PinPhase.closed) {
            NotificationService.showOngoingRide(
