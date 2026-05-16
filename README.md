@@ -81,55 +81,66 @@
 
 ## 🛠️ 기술 스택
 <table>
-  <thead>
-    <tr>
-      <th>영역</th>
-      <th>기술</th>
-      <th>선정 이유</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td>Frontend</td>
-      <td>Flutter (3.41.4), Dart (3.11.1)</td>
-      <td>단일 코드베이스로 Android/iOS 동시 지원, 선언적 UI</td>
-    </tr>
-    <tr>
-      <td>Backend</td>
-      <td>Django (Python)</td>
-      <td>ORM 기반 빠른 개발, 마이그레이션 관리, 내장 인증/관리자</td>
-    </tr>
-    <tr>
-      <td>Database</td>
-      <td>PostgreSQL</td>
-      <td>트랜잭션 안전성, 외래키 무결성, 반경 내 모집 탐색</td>
-    </tr>
-    <tr>
-      <td>실시간 통신</td>
-      <td>Django Channels (WebSocket)</td>
-      <td>채팅 메시지 송수신, 매칭 알림 실시간 전달</td>
-    </tr>
-    <tr>
-      <td>캐시</td>
-      <td>Redis (ElastiCache)</td>
-      <td>WebSocket 채널 레이어, 세션/캐시 관리</td>
-    </tr>
-    <tr>
-      <td>파일 저장</td>
-      <td>AWS S3</td>
-      <td>영수증/프로필 이미지 저장 (Presigned URL 업로드)</td>
-    </tr>
-    <tr>
-      <td rowspan="2">외부 API</td>
-      <td>Kakao Map API</td>
-      <td>지도 렌더링, 위치/핀 표시</td>
-    </tr>
-    <tr>
-      <td>KakaoPay 송금 링크</td>
-      <td>정산 시 외부 송금 페이지로 딥링크 이동</td>
-    </tr>
-  </tbody>
-</table>
+		        <tr style="background-color: #f5f6fa;">
+		            <th>영역</th>
+		            <th>기술</th>
+		        </tr>
+		        <tr>
+		            <td><b>Frontend</b></td>
+		            <td>
+		                <img src="https://img.shields.io/badge/Flutter-02569B?style=for-the-badge&logo=flutter&logoColor=white">
+		                <img src="https://img.shields.io/badge/Dart-0175C2?style=for-the-badge&logo=dart&logoColor=white">
+		            </td>
+		        </tr>
+		        <tr>
+		            <td><b>Backend</b></td>
+		            <td>
+		                <img src="https://img.shields.io/badge/Django-092E20?style=for-the-badge&logo=django&logoColor=white">
+		                <img src="https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white">
+		            </td>
+		        </tr>
+		        <tr>
+		            <td><b>Database</b></td>
+		            <td>
+		                <img src="https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white">
+		            </td>
+		        </tr>
+		        <tr>
+		            <td><b>실시간 통신</b></td>
+		            <td>
+		                <img src="https://img.shields.io/badge/Django Channels-092E20?style=for-the-badge&logo=django&logoColor=white">
+		                <img src="https://img.shields.io/badge/WebSocket-010101?style=for-the-badge&logo=socketdotio&logoColor=white">
+		                <img src="https://img.shields.io/badge/Firebase-FFCA28?style=for-the-badge&logo=firebase&logoColor=black">
+		            </td>
+		        </tr>
+		        <tr>
+		            <td><b>캐시</b></td>
+		            <td>
+		                <img src="https://img.shields.io/badge/Redis-DC382D?style=for-the-badge&logo=redis&logoColor=white">
+		                <img src="https://img.shields.io/badge/Microsoft Azure-0078D4?style=for-the-badge&logo=microsoftazure&logoColor=white">
+		            </td>
+		        </tr>
+		        <tr>
+		            <td><b>파일 저장 및<br>이미지 접근</b></td>
+		            <td>
+		                <img src="https://img.shields.io/badge/Azure Blob Storage-0078D4?style=for-the-badge&logo=microsoftazure&logoColor=white">
+		            </td>
+		        </tr>
+		        <tr>
+		            <td><b>인프라</b></td>
+		            <td>
+		                <img src="https://img.shields.io/badge/Microsoft Azure-0078D4?style=for-the-badge&logo=microsoftazure&logoColor=white">
+		            </td>
+		        </tr>
+		        <tr>
+		            <td><b>외부 API</b></td>
+		            <td>
+		                <img src="https://img.shields.io/badge/Kakao Map API-FFCD00?style=for-the-badge&logo=kakao&logoColor=black">
+		                <img src="https://img.shields.io/badge/KakaoPay-FFCD00?style=for-the-badge&logo=kakaotalk&logoColor=black">
+		                <img src="https://img.shields.io/badge/NAVER CLOVA OCR-03C75A?style=for-the-badge&logo=naver&logoColor=white">
+		            </td>
+		        </tr>
+		    </table>
 
 <br><br>
 
