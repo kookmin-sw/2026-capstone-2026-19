@@ -185,7 +185,10 @@ class ProfileImageUpdateView(APIView):
         if 'profile_image' in request.FILES:
             user.profile_img_url = request.FILES['profile_image']
             user.save()
-            return Response({"message": "Profile image updated successfully"}, status=status.HTTP_200_OK)
+            return Response({
+                "message": "Profile image updated successfully",
+                "profile_img_url": request.build_absolute_uri(user.profile_img_url.url) if user.profile_img_url else None,
+            }, status=status.HTTP_200_OK)
         return Response({"error": "No image provided"}, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -388,7 +391,7 @@ class UserProfileView(APIView):
                 'nickname': user.nickname,
                 'trust_score': float(user.trust_score),
                 'successful_streak_count': user.successful_streak_count,
-                'profile_img_url': user.profile_img_url.url if user.profile_img_url else None,
+                'profile_img_url': request.build_absolute_uri(user.profile_img_url.url) if user.profile_img_url else None,
                 # 📍 추가: DB에 추가한 인증 필드값을 내려줍니다.
                 'is_phone_verified': getattr(user, 'is_phone_verified', False),
             }
